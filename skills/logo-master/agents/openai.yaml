@@ -1,0 +1,6 @@
+interface:
+  display_name: "Logo Master"
+  short_description: "Logo keşfi, gerçek font, vektör ve Canva üretimi"
+  default_prompt: "$logo-master ile briefime uygun logo adayları geliştir; seçtiklerimden düzenlenebilir kaynaklar ve doğrulanmış varyantlar hazırla."
+policy:
+  allow_implicit_invocation: false
