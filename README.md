@@ -10,4 +10,9 @@ Skill paketi `skills/logo-master/` altındadır. Ana yönerge `skills/logo-maste
 
 `skills/logo-master` klasörünü Codex kullanıcı skill dizinine (`~/.codex/skills/logo-master`) kopyalayın. Skill içindeki araç ve platform gereksinimlerini kullanmadan önce inceleyin.
 
-Bu depo mevcut yerel skill dosyalarının kaynak kopyasını içerir. Python önbellekleri pakete dahil edilmez.
+Bu private depo sürüm geçmişinin merkezidir. Kalıcı geliştirme kopyası
+`C:/Users/Doruk/Projects/logo-master`; eski tarihli staging artık geliştirme
+kaynağı olarak kullanılmaz. Kurulu skill klasöründe doğrudan geliştirme yapmayın.
+
+Sürüm/kurulum sözleşmesi: [docs/versioning.md](docs/versioning.md).
+Python önbellekleri, yerel ortam dosyaları ve çalışma raporları Git'e eklenmez.
