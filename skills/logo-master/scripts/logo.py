@@ -12,6 +12,7 @@ from logo_core.outputs import stage_variant, commit_variant, build_outputs, regi
 
 def parser():
     p = argparse.ArgumentParser(description='Logo-master: seçilmiş kaynakta kontrollü yerel üretim; yayın işlemi yok.')
+    p.add_argument('--version', action='version', version=(Path(__file__).resolve().parents[1]/'VERSION').read_text(encoding='utf-8').strip())
     p.add_argument('--environment', type=Path, help='Yalnız bu süreç için ortam değişkenleri JSON dosyası')
     p.add_argument('--receipt', type=Path, help='Makinece okunabilir yeni makbuz dosyası')
     sub = p.add_subparsers(dest='command', required=True)
