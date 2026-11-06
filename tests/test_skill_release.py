@@ -74,5 +74,9 @@ class ReleaseTests(unittest.TestCase):
  def test_tracked_cache_or_link_refused(self):
   (self.skill/'bad.pyc').write_bytes(b'cache');self.git('add','.');self.git('commit','-qm','bad')
   with self.assertRaises(ValueError):self.api().build_release(self.repo,self.git('rev-parse','HEAD'),self.root/'badout')
+ def test_non_object_manifest_is_reported_as_invalid_package(self):
+  p=self.root/'list-manifest.zip'
+  with zipfile.ZipFile(p,'w') as z:z.writestr('manifest.json',b'[]')
+  with self.assertRaises(ValueError):self.api().verify_release(p,self.commit)
 
 if __name__=='__main__':unittest.main()

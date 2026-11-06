@@ -60,7 +60,9 @@ def inspect_install(target:Path,state_root:Path,details=False)->dict:
  try:
   target,state=locations(target,state_root)
   if (state/'journal.json').exists() or any((state/n).exists() for n in ('staging','outgoing','retired')):return {'status':'recovery_required','version':None,'commit':None}
-  if not (state/'receipt.json').exists():return {'status':'unmanaged','version':None,'commit':None,'exists':target.exists()}
+  if not (state/'receipt.json').exists():
+   if (state/'previous').exists():raise ValueError('Makbuzsuz previous klasörü; korunuyor.')
+   return {'status':'unmanaged','version':None,'commit':None,'exists':target.exists()}
   receipt=record_valid(read(state/'receipt.json'));actual=tree(target) if target.exists() else {};expected=receipt['files']
   differences={'added':sorted(actual.keys()-expected.keys()),'missing':sorted(expected.keys()-actual.keys()),'changed':sorted(n for n in actual.keys()&expected.keys() if actual[n]!=expected[n])}
   previous=receipt.get('previous')
@@ -68,6 +70,7 @@ def inspect_install(target:Path,state_root:Path,details=False)->dict:
    if not matches(state/'previous',previous):raise ValueError('Önceki kurulum değişmiş veya eksik.')
   elif (state/'previous').exists():raise ValueError('Sahipsiz previous klasörü.')
   status='modified' if any(differences.values()) else 'clean'
+  if status=='clean' and receipt['version'] is not None and (target/'VERSION').read_text(encoding='utf-8').strip()!=receipt['version']:raise ValueError('Makbuz VERSION ile uyuşmuyor.')
   result={'status':status,'version':receipt['version'],'commit':receipt['commit'],'files_checked':len(actual),'difference_counts':{k:len(v) for k,v in differences.items()}}
   if details:result['differences']=differences
   return result

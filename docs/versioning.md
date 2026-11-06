@@ -52,3 +52,20 @@ kilidi vardır; çalışan logo üretim işleri bitmeden kurulum yapmayın.
 Tek previous eski kurulumu tutar; sonraki başarılı kurulumda önceki previous
 doğrulanıp kaldırılır. Değişmiş previous korunur ve işlem reddedilir. Junction,
 symlink, arşiv kaçışı ve Windows harf/yol çakışmaları kabul edilmez.
+
+## Test ve release
+
+`tools/check.py` kaynak/test ve kurulu skill'i karıştırmaz; iki test kökünü
+ayrı alt süreçlerde çalıştırır, import dosyalarını checkout içinde doğrular.
+GitHub Windows/Python3.12 portable işi private repoda çalışır; sadece contents
+okuma izni vardır, yayın/kurulum yapmaz. Atlanan beş testin isimleri raporlanır.
+Full profil gerçek Inkscape/Pango'yu başlatır ve sıfır atlama ister.
+
+Release için temiz exact commit'in CI sonucu ve yerel full raporu gerekir.
+CHANGELOG ve VERSION aynı kaynakta olmalı. Draft release'e ZIP ve SHA256SUMS
+eklenir; sonrasında yayımlanır ve yeniden indirilip Git ağacıyla karşılaştırılır.
+Yayımlanmış tag/asset değiştirilmez. Sonradan düzeltme yeni sürümdür.
+
+İlk kabul yalnız Windows ve mevcut renderer ortamı içindir. Başka makinede
+font/renderer gereksinimleri yeniden doğrulanır. Bu yönetim sistemi tüm
+logoların vektör/baskı/estetik kabulünü veya Canva senkronizasyonunu sağlamaz.

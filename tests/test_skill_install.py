@@ -113,7 +113,19 @@ class InstallTests(unittest.TestCase):
   self.adopt();(self.state/'receipt.json').write_text('{}')
   self.assertEqual(self.status()['status'],'invalid')
   with self.assertRaises(ValueError):self.api().install_release(self.b,self.target,self.state)
+ def test_receipt_version_disagrees_with_installed_version(self):
+  self.adopt();p=self.state/'receipt.json';r=json.loads(p.read_text());r['version']='9.0.0';p.write_text(json.dumps(r))
+  self.assertEqual(self.status()['status'],'invalid')
  def test_wrong_target_and_state_relationship_refused(self):
   with self.assertRaises(ValueError):self.api().install_release(self.a,self.target,self.target/'state',adopt_baseline=self.baseline)
+ def test_fresh_install_without_previous_succeeds(self):
+  (self.target/'SKILL.md').unlink();self.target.rmdir()
+  self.api().install_release(self.a,self.target,self.state)
+  self.assertEqual(self.status()['status'],'clean');self.assertIsNone(json.loads((self.state/'receipt.json').read_text())['previous'])
+ def test_orphan_previous_refuses_fresh_install_before_mutation(self):
+  (self.target/'SKILL.md').unlink();self.target.rmdir()
+  previous=self.state/'previous';previous.mkdir(parents=True);(previous/'unknown').write_bytes(b'user')
+  with self.assertRaises(ValueError):self.api().install_release(self.a,self.target,self.state)
+  self.assertFalse(self.target.exists());self.assertEqual((previous/'unknown').read_bytes(),b'user')
 
 if __name__=='__main__':unittest.main()

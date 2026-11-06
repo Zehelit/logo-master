@@ -59,7 +59,7 @@ def inspect_package(package,expected_commit):
    if sum(i.file_size for i in infos)>20_000_000 or any((i.external_attr>>16)&0o170000==0o120000 for i in infos):raise ValueError('Paket boyutu veya link desteklenmiyor.')
    if 'manifest.json' not in names:raise ValueError('Manifest eksik.')
    manifest=json.loads(archive.read('manifest.json'))
-   if manifest.get('schema_version')!=1 or manifest.get('name')!='logo-master' or manifest.get('repository')!=REPOSITORY or manifest.get('source_commit')!=expected_commit:raise ValueError('Manifest/commit uyuşmazlığı.')
+   if not isinstance(manifest,dict) or manifest.get('schema_version')!=1 or manifest.get('name')!='logo-master' or manifest.get('repository')!=REPOSITORY or manifest.get('source_commit')!=expected_commit:raise ValueError('Manifest/commit uyuşmazlığı.')
    version=valid_version(manifest.get('version',''));files=manifest.get('files')
    if not isinstance(files,dict) or not files or len(files)!=len(set(n.casefold() for n in files)):raise ValueError('Manifest dosyaları geçersiz.')
    for name,sha in files.items():
