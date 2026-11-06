@@ -1,25 +1,36 @@
 # Logo Master
 
-Logo keşfi, gerçek fontlarla tipografi, vektör ve Canva üretimi için kişisel Codex skill paketi. Referans belgelerini, Python yardımcılarını ve mevcut testlerini içerir.
+Logo keşfi, gerçek fontlarla tipografi, vektör ve Canva üretimi için kişisel
+Codex skill'i. Yalnız açıkça çağrıldığında çalışır.
 
-## İçerik
+## Doğrudan repodan kurulum
 
-Skill paketi `skills/logo-master/` altındadır. Ana yönerge `skills/logo-master/SKILL.md` dosyasıdır.
-
-## Yerel kullanım
-
-Windows/Python3.12+ ve skill'in araç/font gereksinimlerini inceleyin.
-Yayımlanmış sürümü repo kökünden yönetin:
+Windows, Python 3.12+ ve Git ile:
 
 ```powershell
+git clone https://github.com/Zehelit/logo-master.git
+cd logo-master
+python tools/skillctl.py install
 python tools/skillctl.py status
-python tools/skillctl.py install --tag v1.0.0
-python skills/logo-master/scripts/logo.py --version
 ```
 
-İlk mevcut unversioned kurulumu benimsemek için exact commit ile
-`--adopt-baseline <tam-commit>` gerekir; değişmiş dosyaların üzerine yazılmaz.
-GitHub private repo erişimi için mevcut `gh` oturumu ve Git gereklidir.
+Repo private olduğundan hesabınızın repo erişimi olmalıdır. Kurulum Release,
+ZIP veya GitHub CLI gerektirmez; yerel checkout'ın **commit edilmiş HEAD**
+dosyalarını kurar. Sonraki güncelleme `git pull --ff-only` ve aynı `install`
+komutudur. Seçili tag/commit için `install --ref <tag-veya-tam-commit>` kullanılır.
+
+**[Kurulum rehberi: elle klasör kopyalama, yönetilen kurulum ve AI ajanı ile kurulum](INSTALL.md)**
+
+AI ajanınıza verebileceğiniz talimat:
+
+> https://github.com/Zehelit/logo-master reposundaki INSTALL.md dosyasının
+> “AI ajanı ile kurulum” bölümünü uygula ve logo-master'ı kur. Mevcut yerel
+> değişiklikleri koru; kurulan sürümü, commit'i ve doğrulama sonucunu bildir.
+
+Skill `skills/logo-master/` içindedir. Ana yönergesi
+[SKILL.md](skills/logo-master/SKILL.md); üretim araç/font gereksinimleri
+[yerel vektör rehberinde](skills/logo-master/references/local-vector.md) açıklanır.
+Skill kurulumu tek başına Inkscape, font veya Canva bağlantısı kurmaz.
 
 ## Geliştirme ve test
 
@@ -29,18 +40,12 @@ python tools/check.py --profile portable --report .artifacts/portable-yeni.json
 python tools/check.py --profile full --environment environment.local.json --report .artifacts/full-yeni.json
 ```
 
-Her makbuz yolu yeni olmalıdır. Portable profil mevcut 50 skill testinin beş
-font/renderer testini açıkça atlar; yönetim aracı testlerini de çalıştırır.
-Full profil gerçek Inkscape/Pango ortamı ister ve hiçbir atlamayı kabul etmez.
+Her rapor yolu yeni olmalıdır. Portable profil mevcut 50 skill testinin beş
+font/renderer testini açıkça atlar; kurulum aracı testlerini de çalıştırır.
+Full profil gerçek Inkscape/Pango ortamı ister ve atlama kabul etmez.
 Makine yollarını `environment.local.json` içinde tutun; Git'e eklemeyin.
 
-Release kaynağı çalışma ağacı değil exact commit'tir:
-`python tools/skill_release.py --commit <tam-commit> --out .artifacts/release-yeni`.
-VERSION, tag, commit, manifest ve kurulum makbuzu birlikte doğrulanır.
-
-Bu private depo sürüm geçmişinin merkezidir. Kalıcı geliştirme kopyası
-`C:/Users/Doruk/Projects/logo-master`; eski tarihli staging artık geliştirme
-kaynağı olarak kullanılmaz. Kurulu skill klasöründe doğrudan geliştirme yapmayın.
-
-Sürüm/kurulum sözleşmesi: [docs/versioning.md](docs/versioning.md).
-Python önbellekleri, yerel ortam dosyaları ve çalışma raporları Git'e eklenmez.
+Kaynak geçmişi GitHub'dadır; tek geliştirme checkout'ı ve ayrı kurulu skill
+yeterlidir. Her sürüm için ayrı klasör tutulmaz. VERSION, tag, exact commit ve
+kurulum makbuzu sürümü tanımlar; Release zorunlu değildir.
+[Sürüm ve kurulum sözleşmesi](docs/versioning.md).

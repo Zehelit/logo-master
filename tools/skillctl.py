@@ -8,11 +8,9 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tempfile
-import zipfile
 
-from skill_release import (COMMIT,PREFIX,REPOSITORY,canonical,committed_payload,digest,
-                          git,ignored,inspect_package,safe_name,valid_version,validate_tag)
+from skill_source import (COMMIT,REPOSITORY,canonical,committed_payload,digest,
+                         git,ignored,load_source,safe_name,valid_version,validate_tag)
 
 class RecoveryRequired(RuntimeError):pass
 def now():return datetime.now(timezone.utc).isoformat()
@@ -148,11 +146,13 @@ def preflight(target,state):
  status=inspect_install(target,state)
  if status['status'] in ('recovery_required','invalid','modified'):raise ValueError('Kurulum önkoşulu sağlanmadı: '+json.dumps(status,ensure_ascii=False))
  return status
-def install_release(package:Path,target:Path,state_root:Path,*,adopt_baseline=None)->dict:
+def install_source(source:dict,target:Path,state_root:Path,*,adopt_baseline=None)->dict:
  target,state=locations(target,state_root)
- # Caller supplies a trusted package; CLI also verifies it against fetched Git blobs.
- with zipfile.ZipFile(package) as z:expected=z.read('manifest.json')
- expected=json.loads(expected)['source_commit'];manifest,payload=inspect_package(package,expected)
+ expected=source['commit'];payload=source['payload']
+ manifest=record_valid({'schema_version':1,'repository':REPOSITORY,'version':source['version'],'commit':expected,'files':source['files']})
+ if not isinstance(payload,dict) or set(payload)!=set(manifest['files']):raise ValueError('Commit dosya listesi uyuşmazlığı.')
+ if any(not isinstance(data,bytes) or digest(data)!=manifest['files'][name] for name,data in payload.items()):raise ValueError('Commit dosya hash uyuşmazlığı.')
+ if payload['VERSION'].decode('utf-8').strip()!=manifest['version']:raise ValueError('Commit VERSION uyuşmazlığı.')
  with installation_lock(state):
   status=preflight(target,state);had_receipt=(state/'receipt.json').exists();old=read(state/'receipt.json') if had_receipt else None
   if target.exists() and not old:
@@ -194,33 +194,22 @@ def recover_install(target:Path,state_root:Path)->dict:
    return {**inspect_install(target,state),'recovered':'old_installation'}
   return finish(target,state,journal)
 
-def remote_release(repo,tag,out):
- valid_version(tag[1:] if tag.startswith('v') else '')
- origin=git(repo,'remote','get-url','origin').decode().strip()
- if origin not in ('https://github.com/'+REPOSITORY,'https://github.com/'+REPOSITORY+'.git'):raise ValueError('Beklenmeyen origin.')
- info=json.loads(subprocess.check_output(['gh','release','view',tag,'--repo',REPOSITORY,'--json','tagName,isDraft'],text=True,encoding='utf-8'))
- if info['isDraft'] or info['tagName']!=tag:raise ValueError('Yayımlanmış exact release gerekli.')
- remote=git(repo,'ls-remote','origin','refs/tags/'+tag,'refs/tags/'+tag+'^{}').decode().splitlines()
- refs={line.split()[1]:line.split()[0] for line in remote}
- expected=refs.get('refs/tags/'+tag+'^{}',refs.get('refs/tags/'+tag))
- if not expected:raise ValueError('Remote tag yok.')
- git(repo,'fetch','origin','tag',tag)
- commit=git(repo,'rev-parse',tag+'^{commit}').decode().strip()
- if commit!=expected:raise ValueError('Yerel/uzak tag commit uyuşmazlığı.')
- version=tag[1:];name='logo-master-'+version+'.zip'
- subprocess.run(['gh','release','download',tag,'--repo',REPOSITORY,'--dir',str(out),'--pattern',name,'--pattern','SHA256SUMS'],check=True,capture_output=True)
- package=out/name;sums=(out/'SHA256SUMS').read_text(encoding='ascii').strip()
- if sums!=digest(package.read_bytes())+'  '+name:raise ValueError('İndirilen paket SHA256SUMS uyuşmazlığı.')
- manifest,payload=inspect_package(package,commit);validate_tag(tag,manifest['version'])
- if payload!=committed_payload(repo,commit):raise ValueError('Release paketi Git commit ağacından farklı.')
- return package
+def install_from_repo(repo:Path,ref:str,target:Path,state_root:Path,*,adopt_baseline=None,tag=None)->dict:
+ origin=git(repo,'remote','get-url','origin').decode('utf-8').strip()
+ if origin not in ('https://github.com/'+REPOSITORY,'https://github.com/'+REPOSITORY+'.git','git@github.com:'+REPOSITORY+'.git','ssh://git@github.com/'+REPOSITORY+'.git'):raise ValueError('Beklenmeyen origin: '+origin)
+ source=load_source(repo,ref)
+ if tag is not None:validate_tag(tag,source['version'])
+ return install_source(source,target,state_root,adopt_baseline=adopt_baseline)
+
 def main(argv=None):
  p=argparse.ArgumentParser(description=__doc__);sub=p.add_subparsers(dest='command',required=True)
  s=sub.add_parser('status');s.add_argument('--details',action='store_true')
- s=sub.add_parser('install');s.add_argument('--tag',required=True);s.add_argument('--adopt-baseline')
+ s=sub.add_parser('install');refs=s.add_mutually_exclusive_group();refs.add_argument('--ref',help='Yerel HEAD, tag veya commit (varsayılan: HEAD)');refs.add_argument('--tag',help='Uyumlu eski seçenek; tag VERSION ile eşleşmeli');s.add_argument('--adopt-baseline')
  sub.add_parser('rollback');sub.add_parser('recover');args=p.parse_args(argv)
- target=Path.home()/'.codex/skills/logo-master';state=Path.home()/'.codex/skill-installations/logo-master';repo=Path(__file__).resolve().parents[1]
+ home=Path(os.environ.get('CODEX_HOME',str(Path.home()/'.codex'))).expanduser()
+ target=home/'skills/logo-master';state=home/'skill-installations/logo-master';repo=Path(__file__).resolve().parents[1]
  try:
+  if not home.is_absolute():raise ValueError('CODEX_HOME mutlak bir klasör yolu olmalı.')
   if args.command=='status':result=inspect_install(target,state,args.details)
   elif args.command=='rollback':result=rollback_install(target,state)
   elif args.command=='recover':result=recover_install(target,state)
@@ -230,9 +219,8 @@ def main(argv=None):
     payload=committed_payload(repo,args.adopt_baseline)
     if 'VERSION' in payload:raise ValueError('Legacy baseline sürümlü olamaz.')
     baseline={'schema_version':1,'repository':REPOSITORY,'version':None,'commit':args.adopt_baseline,'files':{n:digest(b) for n,b in payload.items()},'state':'legacy_baseline'}
-   with tempfile.TemporaryDirectory(prefix='logo-release-') as temporary:
-    package=remote_release(repo,args.tag,Path(temporary));result=install_release(package,target,state,adopt_baseline=baseline)
+   result=install_from_repo(repo,args.tag or args.ref or 'HEAD',target,state,adopt_baseline=baseline,tag=args.tag)
   print(json.dumps(result,ensure_ascii=False));return 0
- except (ValueError,OSError,RuntimeError,KeyError,zipfile.BadZipFile,subprocess.CalledProcessError) as exc:
+ except (ValueError,OSError,RuntimeError,KeyError,UnicodeError,subprocess.CalledProcessError) as exc:
   pending=(state/'journal.json').exists();print(json.dumps({'status':'recovery_required' if pending else 'failed','error':str(exc)[:1000]},ensure_ascii=False));return 3 if pending else 2
 if __name__=='__main__':raise SystemExit(main())

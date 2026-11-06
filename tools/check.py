@@ -55,7 +55,7 @@ def child(suite):
 def git_text(*args):return subprocess.check_output(['git','-C',str(ROOT),*args],text=True,encoding='utf-8').strip()
 def run(profile,environment,report_path):
  import yaml
- from skill_release import read_version
+ from skill_source import read_version
  env=subprocess_environment(profile,environment)
  engine={'status':'not_run','reason':'portable profile, no font/renderer acceptance'}
  if profile=='full':

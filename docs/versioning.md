@@ -1,71 +1,67 @@
 # Sürüm ve kurulum sözleşmesi
 
-GitHub `Zehelit/logo-master` private reposu kaynak geçmişini ve release'leri tutar.
-Geliştirme tek checkout'ta, Codex kullanımı yönetilen skill kurulumunda yapılır.
+GitHub `Zehelit/logo-master` private reposu kaynak geçmişinin merkezidir.
+Geliştirme tek checkout'ta, Codex kullanımı ayrı skill kurulumunda yapılır.
 Her sürüm için ayrı çalışma klasörü veya sürekli çalışan güncelleyici yoktur.
 
-Sürümün tek kaynağı `skills/logo-master/VERSION` olacak; ilk adlandırılmış sürüm
-1.0.0. Patch düzeltme, minor uyumlu ekleme, major uyumsuz sözleşme değişimidir.
-Veri modelinin `schema_version` değeri ayrıca yönetilir. Release tag'i taşınmaz.
+Sürümün kaynağı `skills/logo-master/VERSION` dosyasıdır. Patch düzeltme,
+minor uyumlu ekleme, major uyumsuz sözleşme değişimidir. `schema_version`
+veri biçimini ayrıca tanımlar. Adlandırılmış sürümler `vX.Y.Z` Git tag'iyle
+işaretlenebilir; yayımlanmış tag taşınmaz. GitHub Release zorunlu değildir.
+Eski `v1.0.0` Release ve arşivleri tarihsel kayıt olarak korunur; yeni
+kurulum ve dağıtım bunları kullanmaz.
 
-Kurulum ve geri dönüş araçları tamamlanmadan mevcut kurulum elle değiştirilmez.
-Makbuz/tek previous kurtarma kopyası `.codex/skill-installations/logo-master`
-altında, skill keşif ağacının dışında tutulur. Bilinmeyen yerel değişikliklerin
+## Doğrudan kaynak sözleşmesi
+
+[INSTALL.md](../INSTALL.md) insan ve AI ajanı kurulumunun ortak yönergesidir.
+`install` yerel `HEAD`, `--ref` ise yereldeki seçili tag/commit'i çözer.
+Commit içindeki `skills/logo-master/` dosyaları Git blob'larından okunur;
+commit edilmemiş dosyalar kurulmaz. VERSION, tam commit ve her dosyanın
+SHA-256 özeti makbuza kaydedilir. Kaynağın origin'i beklenen repo olmalıdır.
+Kurulum sırasında ağ erişimi veya GitHub CLI kullanılmaz. Kaynağı almak ve
+yenilemek ayrı, açık `clone`, `pull` veya `fetch` işlemleridir.
+
+Varsayılan hedef `.codex/skills/logo-master`; `CODEX_HOME` ayarlanmışsa onun
+skill dizinidir. Makbuz/tek previous kurtarma kopyası Codex kökünün
+`skill-installations/logo-master` klasöründe, skill keşif ağacının dışında
+tutulur. Aynı commit yeniden kurulursa no-op'tur. Bilinmeyen yerel değişikliklerin
 üstüne yazılmaz. Durum sorgusu ağa bağlanmaz; varsayılan özet 2048 byte'ı geçmez.
 
-Günlük bağlam yalnız kısa durum, ilgili diff ve gereken kaynakları içerir.
-Bütün Git geçmişi, eski raporlar veya tüm skill referansları otomatik okunmaz.
-Gerçek logo/font/Canva varlıkları bu genel skill reposuna taşınmaz.
+`status` exit0 ile clean/modified/unmanaged/invalid/recovery_required döndürür;
+exit0 tek başına kabul değildir. Mutasyonda exit2 önkoşul ret, exit3 journal
+nedeniyle kurtarma gerektiğidir. `--tag` eski komutlarla uyumludur; yalnız
+Git tag'i ve VERSION eşleşmesini gerektirir. İlk VERSION'sız kurulumun açık
+benimsenmesi, tüm dosyaların exact Git baseline ile eşleşmesine bağlıdır.
+`__pycache__`, `.pyc`, `.pyo` yeniden üretilebilir önbellektir.
 
-Taşınabilir CI sonucu gerçek font/renderer veya Canva kabulünün yerine geçmez.
-Kurulu dosya sürümü, Codex oturumunun bellekte tuttuğu talimatlardan ayrıdır;
-hot-reload doğrulanmadıkça vaat edilmez.
-
-## Kurulum komutları
-
-Repo kökünden:
-
-```powershell
-python tools/skillctl.py status
-python tools/skillctl.py status --details
-python tools/skillctl.py install --tag v1.0.0
-python tools/skillctl.py rollback
-python tools/skillctl.py recover
-```
-
-İlk eski kurulum yalnız exact Git baseline eşleşmesiyle benimsenir:
-`install --tag v1.0.0 --adopt-baseline <tam-commit>`.
-Bu seçenek genel üzerine yazma izni değildir. Kaynak eklenmiş/değişmiş/silinmişse
-işlem reddedilir. `__pycache__`, `.pyc`, `.pyo` yeniden üretilebilir önbellektir.
-
-Kurulum uzak release/tag/commit'i, indirilen SHA256SUMS'u ve paket payload'ını
-Git commit dosyalarıyla karşılaştırır. `status` yalnız diski okur; GitHub'a gitmez.
-`status` exit0 ve clean/modified/unmanaged/invalid/recovery_required döndürür.
-Mutasyonda exit2 önkoşul ret, exit3 journal nedeniyle kurtarma gerektiğidir.
-
-Kesinti halinde önce durumu okuyun; `recover` journal ve gerçek hash'leri
-karşılaştırır. Hazırlık sırasında kesilirse eski kurulumu korur; hazır işlemde
-doğrulanmış yeni kurulumu tamamlar. Aynı recover ikinci kez no-op'tur. Klasör
-rename'leri ve receipt yazımı tek fiziksel atomik işlem değildir. Tek yazar OS
-kilidi vardır; çalışan logo üretim işleri bitmeden kurulum yapmayın.
+Kesinti halinde `recover` journal ile gerçek hash'leri karşılaştırır.
+Hazırlık sırasında kesilirse eski kurulumu korur; hazır işlemde doğrulanmış
+yeni kurulumu tamamlar. İkinci recover no-op'tur. Klasör rename'leri ve receipt
+yazımı tek fiziksel atomik işlem değildir. Tek yazar OS kilidi vardır.
+Kurulum sırasında aynı kaynakları kullanan logo işlerini çalıştırmayın.
 
 Tek previous eski kurulumu tutar; sonraki başarılı kurulumda önceki previous
 doğrulanıp kaldırılır. Değişmiş previous korunur ve işlem reddedilir. Junction,
-symlink, arşiv kaçışı ve Windows harf/yol çakışmaları kabul edilmez.
+symlink, yol kaçışı ve Windows harf/yol çakışmaları kabul edilmez.
+Tamamen elle kopyalama seçeneği yönetim makbuzu ve otomatik rollback sağlamaz.
 
-## Test ve release
+## Test ve sürüm işaretleme
 
 `tools/check.py` kaynak/test ve kurulu skill'i karıştırmaz; iki test kökünü
-ayrı alt süreçlerde çalıştırır, import dosyalarını checkout içinde doğrular.
-GitHub Windows/Python3.12 portable işi private repoda çalışır; sadece contents
-okuma izni vardır, yayın/kurulum yapmaz. Atlanan beş testin isimleri raporlanır.
+ayrı alt süreçlerde çalıştırır, skill import'larını checkout içinde doğrular.
+GitHub Windows/Python3.12 portable işi sadece contents okuma izniyle çalışır;
+yayın/kurulum yapmaz. Atlanan beş font/renderer testi isimleriyle raporlanır.
 Full profil gerçek Inkscape/Pango'yu başlatır ve sıfır atlama ister.
 
-Release için temiz exact commit'in CI sonucu ve yerel full raporu gerekir.
-CHANGELOG ve VERSION aynı kaynakta olmalı. Draft release'e ZIP ve SHA256SUMS
-eklenir; sonrasında yayımlanır ve yeniden indirilip Git ağacıyla karşılaştırılır.
-Yayımlanmış tag/asset değiştirilmez. Sonradan düzeltme yeni sürümdür.
+Sürüm işaretlemeden önce temiz exact commit'in CI sonucu ve yerel full
+raporu doğrulanır. CHANGELOG ile VERSION aynı kaynakta güncellenir. Uygun
+commit'e Git tag'i eklenir; paket derleme/yükleme veya Release açma gerekmez.
+Sonradan düzeltme yeni commit ve gerektiğinde yeni sürümdür.
 
-İlk kabul yalnız Windows ve mevcut renderer ortamı içindir. Başka makinede
-font/renderer gereksinimleri yeniden doğrulanır. Bu yönetim sistemi tüm
-logoların vektör/baskı/estetik kabulünü veya Canva senkronizasyonunu sağlamaz.
+Günlük bağlam kısa durum, ilgili diff ve gereken kaynaklarla sınırlıdır.
+Bütün Git geçmişi ve eski raporlar otomatik okunmaz. Gerçek logo/font/Canva
+varlıkları bu genel skill reposuna taşınmaz. Kurulu dosya sürümü, oturumun
+bellekte tuttuğu talimatlardan ayrıdır; hot-reload vaat edilmez.
+
+İlk kabul Windows ve mevcut renderer ortamı içindir. Bu yönetim sistemi
+logo estetiği, baskı/nakış veya Canva senkronizasyonunu doğrulamaz.
