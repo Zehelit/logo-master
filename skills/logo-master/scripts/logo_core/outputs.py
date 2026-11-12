@@ -4,6 +4,7 @@ import copy
 import hashlib
 import html
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -190,7 +191,8 @@ def _panel_preview(variant, measurements):
     return None, 'Paylaşılabilir önizleme için görünür bir raster çıktı veya konturlu SVG gerekli.'
 
 
-def _generate_panel_preview(variant, stage, measurements):
+def _generate_panel_preview(variant, stage, measurements, source_root=None):
+    source_root = source_root or stage
     source = variant['source']['path']
     observed = measurements.get(source, {})
     if variant['selection']['status'] not in {'selected', 'approved'} or observed.get('kind') != 'vector':
@@ -211,12 +213,15 @@ def _generate_panel_preview(variant, stage, measurements):
     for component in variant.get('components', []):
         spec = component.get('font')
         if component.get('kind') == 'live_text' and spec and component.get('svg_id'):
-            font_specs[component['svg_id']] = {**spec, **({'path':stage/spec['path']} if spec.get('path') else {})}
-    preview_key = hashlib.sha256((variant['id'] + ':' + sha256(stage/source)).encode()).hexdigest()
+            font_specs[component['svg_id']] = {**spec, **({'path':safe_path(source_root,spec['path'])} if spec.get('path') else {})}
+    source_file = safe_path(source_root,source)
+    if sha256(source_file) != variant['source']['sha256']:
+        raise ValueError('Önizleme kaynağı değişti.')
+    preview_key = hashlib.sha256((variant['id'] + ':' + variant['source']['sha256']).encode()).hexdigest()
     path = stage/'assets'/f'preview-{preview_key}.png'
     try:
         if not path.exists():
-            render_svg(stage/source, path, max(1, round(width*scale)), max(1, round(height*scale)), dict(os.environ), font_specs=font_specs)
+            render_svg(source_file, path, max(1, round(width*scale)), max(1, round(height*scale)), dict(os.environ), font_specs=font_specs)
         if not inspect_asset(path).get('visible_bbox'):
             return None, 'Renderer görünür logo içeren bir önizleme üretmedi.'
     except (OSError, ValueError) as exc:
@@ -224,8 +229,207 @@ def _generate_panel_preview(variant, stage, measurements):
     return path.relative_to(stage).as_posix(), None
 
 
-def build_outputs(project: dict, output_dir: Path, kinds: list[str]) -> dict:
+def _resolve_panel_preview(variant, stage, measurements, source_root=None):
+    preview, warning = _panel_preview(variant, measurements)
+    if warning:
+        generated, detail = _generate_panel_preview(variant, stage, measurements, source_root)
+        if generated:
+            return generated, None
+        if detail:
+            warning += ' ' + detail
+    return preview, warning
+
+
+def _comparison_group(variant):
+    spec = variant.get('comparison')
+    if spec is None:
+        return None, (0,0,1,1,1), ''
+    if not isinstance(spec,dict) or not isinstance(spec.get('group'),str) or not spec['group'].strip():
+        raise ValueError('Karşılaştırma grup kimliği gerekli.')
+    crop, scale, note = spec.get('crop',[0,0,1,1]),spec.get('scale',1),spec.get('note','')
+    if not isinstance(crop,list) or len(crop) != 4 or not isinstance(note,str) or any(
+            type(value) not in {int,float} or not math.isfinite(value) for value in [*crop,scale]):
+        raise ValueError('Karşılaştırma kırpma, ölçek veya açıklama kaydı geçersiz.')
+    x,y,width,height = crop
+    if min(x,y) < 0 or min(width,height,scale) <= 0 or x+width > 1 or y+height > 1 or scale > 1:
+        raise ValueError('Karşılaştırma kırpma ve ölçeği görünüm kutusuna sığmalı.')
+    return spec['group'], (*crop,scale), note
+
+
+def _write_panel(project, stage, previews):
+    cards, warnings = [], []
+    for design in project['designs']:
+        groups = {}
+        for variant in design['variants']:
+            if variant['id'] not in previews:
+                continue
+            group, geometry, change = _comparison_group(variant)
+            previous, views = groups.setdefault(group,(geometry,[]))
+            if previous != geometry:
+                raise ValueError('Aynı karşılaştırma grubunda kırpma ve ölçek eşleşmeli.')
+            x,y,width,height,scale = geometry
+            label = html.escape(f"{variant['id']} · varyant {variant['number']}")
+            path, warning = previews[variant['id']]
+            image = link = ''
+            if path:
+                if not safe_path(stage,path).is_file():
+                    raise ValueError('Pano önizlemesi paket içinde bulunamadı.')
+                url = html.escape(path,quote=True)
+                inset = ' '.join(f'{value*100:.8g}%' for value in (y,1-x-width,1-y-height,x))
+                image = f'<img loading="lazy" src="{url}" alt="{label}" style="--scale:{scale*100:.8g}%;--crop:inset({inset})">'
+                link = f' <a href="{url}">Görsel dosyası</a>'
+            caption = f'<p>{html.escape(change)}</p>' if change else ''
+            if warning:
+                warnings.append({'variant_id':variant['id'],'message':warning,'preview':path})
+                caption += f'<p>{html.escape(warning)}</p>'
+            views.append(f'<figure><div class="art">{image}</div><figcaption>{label}{link}{caption}</figcaption></figure>')
+        if groups:
+            heading = html.escape(design.get('name',design['id']))
+            grids = []
+            for group, (_, views) in groups.items():
+                tag = f' data-comparison-group="{html.escape(group,quote=True)}"' if group is not None else ''
+                grids.append(f'<div class="views"{tag}>'+''.join(views)+'</div>')
+            cards.append(f'<section><h2>{heading}</h2>'+''.join(grids)+'</section>')
+    title = html.escape(project['brand']['name'])
+    css = '''body{margin:0;background:#eef1f5;color:#182739;font:16px system-ui,sans-serif}main{max-width:1400px;margin:auto;padding:40px 24px}
+    h1{font-size:36px;letter-spacing:-1px}header{margin-bottom:36px}section{margin:24px 0;background:white;border:1px solid #dbe2eb;border-radius:18px;padding:24px}
+    h2{font-size:20px;margin:0 0 20px}.views{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}.views+.views{margin-top:24px}
+    figure{margin:0;min-width:0}.art{display:flex;align-items:center;justify-content:center;height:360px;border:1px solid #e7ebf0;border-radius:12px;background:white;overflow:hidden}
+    .art img{display:block;width:var(--scale,100%);height:var(--scale,100%);min-width:0;min-height:0;object-fit:contain;clip-path:var(--crop,none)}
+    figcaption{padding:14px 4px;font-size:14px;color:#4d6075;overflow-wrap:anywhere}figcaption p{margin:.4em 0 0}
+    @media(max-width:650px){main{padding:24px 12px}section{padding:14px}.views{gap:12px}.art{height:210px}h1{font-size:28px}}
+    @media(max-width:400px){.art{height:170px}}'''
+    document = f'<!doctype html><html lang="tr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title} — karşılaştırma</title><style>{css}</style><main><header><h1>{title}</h1></header>'+''.join(cards)+'</main></html>'
+    (stage/'index.html').write_text(document,encoding='utf-8')
+    return warnings
+
+
+def _copy_scoped_asset(source, digest, measurement, stage):
+    if measurement.get('format') == 'svg':
+        result = audit_svg(source)
+        if result['errors'] or any(ref['kind']=='external' for ref in result['references']):
+            raise ValueError('Paket SVG’si bağımsız ve geçerli olmalı.')
+    relative = f"assets/{digest}.{measurement['format']}"
+    path = stage/relative
+    if not path.exists():
+        _publish_asset(source,path,digest)
+    return relative
+
+
+def _delivery_asset(record, root, target):
+    ref = record.get('acceptance_receipt')
+    if not ref:
+        return None
+    receipt_path = safe_path(root,ref['path'])
+    if sha256(receipt_path) != ref['sha256']:
+        raise ValueError('Teslim kabul makbuzu değişti.')
+    receipt = load_project(receipt_path)
+    if receipt.get('target') != target:
+        return None
+    checks = receipt.get('checks',[])
+    required = [check for check in checks if check.get('required') is True]
+    expected = {'vector-delivery':{'format','svg_structure','portable_vector','svg_bounds','visible_artwork'},
+                'raster-delivery':{'format','visible_artwork','raster_metadata'}}[target]
+    if receipt.get('status') != 'passed' or receipt.get('sha256') != record['sha256'] or not expected.issubset({check['name'] for check in required}) or any(
+            check.get('status') != 'passed' or check.get('sha256') != record['sha256'] for check in required):
+        raise ValueError('Teslim dosyası bu hedef için doğrulanmamış.')
+    return receipt
+
+
+def _scoped_outputs(project, output_dir, kinds, scope, target):
+    if (scope == 'delivery' and target not in {'vector-delivery','raster-delivery'}) or (scope == 'presentation' and target):
+        raise ValueError('Teslim paketi için geçerli --delivery-target gerekli.')
+    root, output_dir = Path(project['_root']), Path(output_dir)
+    if output_dir.exists():
+        raise ValueError('Çıktı dizini yeni olmalı.')
+    output_dir.parent.mkdir(parents=True,exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='.logo-scope-',dir=output_dir.parent) as folder:
+        stage = Path(folder)/'package'
+        (stage/'assets').mkdir(parents=True)
+        entries, previews, warnings = [], {}, []
+        for design, variant in variants(project):
+            if is_technical_pilot(project) or not variant['active'] or variant['selection']['status'] == 'rejected':
+                continue
+            if scope == 'presentation':
+                records = [*variant.get('artifacts',[]),variant['source']]
+                by_path = {record['path']:record for record in records}
+                measurements = {}
+                for record in by_path.values():
+                    source = safe_path(root,record['path'])
+                    if source.is_file() and sha256(source) == record['sha256']:
+                        observed = inspect_asset(source)
+                        if observed.get('format') == 'svg':
+                            audit = audit_svg(source)
+                            if audit['errors'] or any(ref['kind']=='external' for ref in audit['references']):
+                                continue
+                        measurements[record['path']] = observed
+                preview, warning = _resolve_panel_preview(variant,stage,measurements,root)
+                if preview in by_path:
+                    record = by_path[preview]
+                    preview = _copy_scoped_asset(safe_path(root,preview),record['sha256'],measurements[preview],stage)
+                previews[variant['id']] = (preview,warning)
+                entries.append({'design_id':design['id'],'variant_id':variant['id'],'preview':preview})
+            else:
+                _append_delivery(variant,root,target,stage,entries)
+        if scope == 'presentation':
+            write_json(stage/'active.json',entries)
+            if 'panel' in kinds or 'package' in kinds:
+                warnings = _write_panel(project,stage,previews)
+        else:
+            if not entries:
+                raise ValueError('Bu hedefe uygun onaylı ve teknik olarak doğrulanmış teslim dosyası yok.')
+            write_json(stage/'delivery.json',entries)
+        hashes = {path.relative_to(stage).as_posix():sha256(path) for path in stage.rglob('*') if path.is_file()}
+        write_json(stage/'manifest.json',{'schema_version':1,'project_id':project['project_id'],'scope':scope,'target':target,'files':hashes})
+        crc = _verify_zip(stage,hashes) if 'package' in kinds else None
+        os.replace(stage,output_dir)
+    return {'status':'passed','scope':scope,'path':str(output_dir.resolve()),'active_count':len({item['variant_id'] for item in entries}),
+            'files':hashes,'zip_crc':crc,'panel_warnings':warnings,'publication':'not_requested_not_performed'}
+
+
+def _append_delivery(variant, root, target, stage, entries):
+    selection, approval = variant['selection'],variant.get('approval') or {}
+    approved = (approval.get('status')=='approved' and approval.get('source_sha256')==variant['source']['sha256'] and approval.get('evidence')) or (
+        not approval and selection.get('status')=='approved' and selection.get('evidence'))
+    if not approved:
+        return
+    if sha256(safe_path(root,variant['source']['path'])) != variant['source']['sha256']:
+        raise ValueError('Onaylanan varyant kaynağı değişti.')
+    for record in [variant['source'],*variant.get('artifacts',[])]:
+        receipt = _delivery_asset(record,root,target)
+        if not receipt:
+            continue
+        source = safe_path(root,record['path'])
+        observed = inspect_asset(source)
+        if observed.get('format') != {'vector-delivery':'svg','raster-delivery':'png'}[target]:
+            raise ValueError('Teslim dosyasının biçimi hedefle uyuşmuyor.')
+        relative = _copy_scoped_asset(source,record['sha256'],observed,stage)
+        entries.append({'variant_id':variant['id'],'path':relative,'sha256':record['sha256'],
+                        'acceptance_receipt_sha256':record['acceptance_receipt']['sha256']})
+
+
+def _verify_zip(stage, hashes, *, archive_model=False):
+    with zipfile.ZipFile(stage/'package.zip','w',zipfile.ZIP_DEFLATED) as archive:
+        for name in [*hashes,'manifest.json']:
+            archive.write(stage/name,name)
+    with zipfile.ZipFile(stage/'package.zip') as archive, tempfile.TemporaryDirectory(prefix='logo-package-verify-') as folder:
+        if archive.testzip() is not None:
+            raise ValueError('ZIP CRC doğrulaması başarısız.')
+        archive.extractall(folder)
+        extracted = Path(folder)
+        if sha256(extracted/'manifest.json') != sha256(stage/'manifest.json') or any(sha256(extracted/name)!=digest for name,digest in hashes.items()):
+            raise ValueError('Açılan ZIP hash uyuşmazlığı.')
+        if archive_model and validate_project(load_project(extracted/'project.json'),extracted)['errors']:
+            raise ValueError('Açılan ZIP model/varlık doğrulaması başarısız.')
+    return 'passed'
+
+
+def build_outputs(project: dict, output_dir: Path, kinds: list[str], *, scope='archive', delivery_target=None) -> dict:
     if set(kinds)-{'inventory','panel','package'}: raise ValueError('Bilinmeyen çıktı türü.')
+    if scope in {'presentation','delivery'}:
+        return _scoped_outputs(project,output_dir,kinds,scope,delivery_target)
+    if scope != 'archive' or delivery_target:
+        raise ValueError('Paket amacı veya teslim hedefi geçersiz.')
     root = Path(project['_root']); report = validate_project(project, root)
     if report['errors']: raise ValueError('Çıktıdan önce proje doğrulanmalı: '+str(report['errors']))
     for _,variant in variants(project):
@@ -271,45 +475,14 @@ def build_outputs(project: dict, output_dir: Path, kinds: list[str]) -> dict:
         write_json(stage/'active.json', active)
         panel_warnings = []
         if 'panel' in kinds or 'package' in kinds:
-            cards = []
-            for d in portable['designs']:
-                views = []
-                for v in d['variants']:
-                    if v['id'] not in active_ids: continue
-                    preview, warning = _panel_preview(v, measurements)
-                    if warning:
-                        generated, detail = _generate_panel_preview(v, stage, measurements)
-                        if generated:
-                            preview, warning = generated, None
-                        elif detail:
-                            warning += ' '+detail
-                    label = html.escape(f"{v['id']} · varyant {v['number']}")
-                    image = f'<img loading="lazy" src="{html.escape(preview,quote=True)}" alt="{label}">' if preview else ''
-                    note = f'<p>{html.escape(warning)}</p>' if warning else ''
-                    if warning:
-                        panel_warnings.append({'variant_id':v['id'], 'message':warning, 'preview':preview})
-                    views.append(f'<figure><div class="art">{image}</div><figcaption>{label}{note}</figcaption></figure>')
-                if views: cards.append(f'<section><h2>{html.escape(d.get("name",d["id"]))}</h2><div class="views">'+''.join(views)+'</div></section>')
-            title = html.escape(portable['brand']['name'])
-            css = 'body{margin:0;background:#eef1f5;color:#182739;font:16px system-ui,sans-serif}main{max-width:1400px;margin:auto;padding:40px 24px}h1{font-size:36px;letter-spacing:-1px}header{margin-bottom:36px}section{margin:24px 0;background:white;border:1px solid #dbe2eb;border-radius:18px;padding:24px}h2{font-size:20px;margin:0 0 20px}.views{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}figure{margin:0;min-width:0}.art{height:360px;border:1px solid #e7ebf0;border-radius:12px;background:white}.art img{display:block;width:100%;height:100%;object-fit:contain}figcaption{padding:14px 4px;font-size:14px;color:#4d6075;overflow-wrap:anywhere}@media(max-width:650px){main{padding:24px 12px}section{padding:14px}.views{gap:12px}.art{height:210px}h1{font-size:28px}}@media(max-width:400px){.art{height:170px}}'
-            document = f'<!doctype html><html lang="tr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title} — karşılaştırma</title><style>{css}</style><main><header><h1>{title}</h1><p>Logo tasarımları · yan yana karşılaştırma</p></header>'+''.join(cards)+'</main></html>'
-            (stage/'index.html').write_text(document, encoding='utf-8')
+            previews = {}
+            for _, variant in variants(portable):
+                if variant['id'] in active_ids:
+                    previews[variant['id']] = _resolve_panel_preview(variant, stage, measurements)
+            panel_warnings = _write_panel(portable, stage, previews)
         hashes = {str(p.relative_to(stage)).replace('\\','/'):sha256(p) for p in stage.rglob('*') if p.is_file()}
         write_json(stage/'manifest.json', {'schema_version':1,'project_id':portable['project_id'],'files':hashes})
-        crc = None
-        if 'package' in kinds:
-            with zipfile.ZipFile(stage/'package.zip','w',zipfile.ZIP_DEFLATED) as archive:
-                for path in stage.rglob('*'):
-                    if path.is_file() and path.name != 'package.zip': archive.write(path,str(path.relative_to(stage)))
-            with zipfile.ZipFile(stage/'package.zip') as archive:
-                if archive.testzip() is not None: raise ValueError('ZIP CRC doğrulaması başarısız.')
-                with tempfile.TemporaryDirectory(prefix='logo-package-verify-') as extracted:
-                    archive.extractall(extracted)
-                    extracted=Path(extracted)
-                    check=validate_project(load_project(extracted/'project.json'),extracted)
-                    if check['errors']:raise ValueError('Açılan ZIP model/varlık doğrulaması başarısız.')
-                    if any(sha256(extracted/name)!=digest for name,digest in hashes.items()):raise ValueError('Açılan ZIP hash uyuşmazlığı.')
-            crc = 'passed'
+        crc = _verify_zip(stage,hashes,archive_model=True) if 'package' in kinds else None
         os.replace(stage, output_dir)
     return {'status':'passed','path':str(output_dir.resolve()),'active_count':len(active),'files':hashes,'zip_crc':crc,
             'panel_warnings':panel_warnings,'publication':'not_requested_not_performed'}

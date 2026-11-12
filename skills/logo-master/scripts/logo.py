@@ -39,6 +39,8 @@ def parser():
     a=sub.add_parser('artifact'); a.add_argument('project',type=Path); a.add_argument('variant_id'); a.add_argument('record',type=Path)
     for name in ['outputs','package']:
         a=sub.add_parser(name); a.add_argument('project',type=Path); a.add_argument('output_dir',type=Path)
+        a.add_argument('--scope',choices=['archive','presentation','delivery'],default='archive')
+        a.add_argument('--delivery-target',choices=['vector-delivery','raster-delivery'])
         if name=='outputs': a.add_argument('--kinds',nargs='+',choices=['inventory','panel','package'],default=['inventory','panel'])
     return p
 
@@ -112,7 +114,9 @@ def main(argv=None):
             elif c=='stage': result=stage_variant(project,load_project(args.edit_receipt),args.output_dir)
             elif c=='commit': result=commit_variant(args.project,load_project(args.staged))
             elif c=='artifact': result=register_artifact(args.project,args.variant_id,load_project(args.record))
-            elif c in ['outputs','package']: result=build_outputs(project,args.output_dir,['inventory','panel','package'] if c=='package' else args.kinds)
+            elif c in ['outputs','package']:
+                result=build_outputs(project,args.output_dir,['inventory','panel','package'] if c=='package' else args.kinds,
+                                     scope=args.scope,delivery_target=args.delivery_target)
         finally:
             for key,value in previous.items():
                 if value is None: os.environ.pop(key,None)

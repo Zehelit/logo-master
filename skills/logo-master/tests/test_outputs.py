@@ -102,4 +102,57 @@ class OutputTests(unittest.TestCase):
         self.assertNotIn(artifacts[0]['sha256'], markup)
         self.assertNotIn(artifacts[1]['sha256'], markup)
 
+    def test_presentation_uses_explicit_groups_and_omits_archive_only_files(self):
+        from PIL import Image
+        design = self.p['designs'][0]
+        base = design['variants'][0]
+        font = self.root/'internal.ttf'
+        font.write_bytes(b'private font fixture')
+        base['components'].append({'id':'private','kind':'live_text','font':{'path':font.name,'sha256':sha256(font)}})
+        base['comparison'] = {'group':'colour','crop':[0.05,0.05,0.9,0.9],'scale':0.9,'note':'Mavi'}
+        alternate = copy.deepcopy(base)
+        alternate.update(id='v2',number=2,parent_id='v1')
+        alternate['comparison']['note'] = 'Kırmızı'
+        preview = self.root/'raster.png'
+        Image.new('RGBA',(512,512),'red').save(preview)
+        alternate['artifacts'] = [{'path':preview.name,'sha256':sha256(preview),'format':'png'}]
+        hidden = copy.deepcopy(base)
+        hidden.update(id='v3',number=3,active=False)
+        hidden['source']['path'] = 'missing-inactive.svg'
+        design['variants'].extend([alternate,hidden])
+        result = build_outputs(self.p,self.root/'presentation',['panel','package'],scope='presentation')
+        self.assertEqual(result['zip_crc'],'passed')
+        self.assertEqual(result['active_count'],2)
+        self.assertNotIn('project.json',result['files'])
+        self.assertFalse(any(path.endswith('.ttf') for path in result['files']))
+        panel = (self.root/'presentation/index.html').read_text(encoding='utf-8')
+        self.assertEqual(panel.count('data-comparison-group="colour"'),1)
+        self.assertEqual(panel.count('--scale:90%'),2)
+        self.assertIn('Kırmızı',panel)
+        self.assertNotIn('v3',panel)
+
+    def test_delivery_requires_real_technical_receipt_and_final_approval(self):
+        from PIL import Image
+        from logo_core.acceptance import accept_asset
+        row = self.p['designs'][0]['variants'][0]
+        raster = self.root/'art.png'
+        with Image.new('RGBA',(32,32)) as image:
+            image.paste('red',(3,4,20,25))
+            image.save(raster,dpi=(300,300))
+        accepted = accept_asset(raster,'raster-delivery',{'width':32,'height':32,'dpi':300,'transparent':True},{})
+        receipt = self.root/'acceptance.json'
+        receipt.write_text(json.dumps(accepted),encoding='utf-8')
+        row['artifacts'] = [{'path':raster.name,'sha256':sha256(raster),'format':'png',
+                             'acceptance_receipt':{'path':receipt.name,'sha256':sha256(receipt)}}]
+        opts = {'scope':'delivery','delivery_target':'raster-delivery'}
+        with self.assertRaises(ValueError):
+            build_outputs(self.p,self.root/'no-approval',['package'],**opts)
+        row['approval'] = {'status':'approved','source_sha256':row['source']['sha256'],'evidence':'fixture'}
+        result = build_outputs(self.p,self.root/'delivery',['package'],**opts)
+        self.assertEqual(result['zip_crc'],'passed')
+        self.assertEqual(set(result['files']),{'delivery.json',f'assets/{sha256(raster)}.png'})
+        receipt.write_text('{}',encoding='utf-8')
+        with self.assertRaises(ValueError):
+            build_outputs(self.p,self.root/'tampered',['package'],**opts)
+
 if __name__=='__main__':unittest.main()

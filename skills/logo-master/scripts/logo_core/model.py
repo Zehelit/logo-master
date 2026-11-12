@@ -135,6 +135,8 @@ def validate_project(project: dict, root: Path) -> dict:
             if source.get('kind') not in ['vector', 'hybrid', 'raster']:
                 add('source_kind', 'Kaynak türü vector/hybrid/raster olmalı.', context)
             source_path = asset(source, context, visual=True)
+            if source.get('acceptance_receipt'):
+                asset(source['acceptance_receipt'],context+'/source_acceptance')
             nodes = None
             observed = observations.get(source_path, {})
             kind = observed.get('kind')
@@ -196,6 +198,8 @@ def validate_project(project: dict, root: Path) -> dict:
             for output in variant.get('artifacts', []):
                 output_path = asset(output, context + '/artifact', visual=True)
                 if output_path:
+                    if output.get('acceptance_receipt'):
+                        asset(output['acceptance_receipt'],context+'/artifact_acceptance')
                     measurement = observations[output_path]
                     if measurement['status'] != 'measured':
                         warnings.append({'code':'artifact_unmeasured','context':context,'path':output['path'],'observed':measurement})

@@ -1,5 +1,20 @@
 # Değişiklik günlüğü
 
+## 1.2.0
+
+Kaynak türü, çıktı boyutu ve DPI artık dosyanın ölçülen içeriğiyle doğrulanır.
+Renk işlemleri, yazı ve etkin font bilgileri daha dar sözleşmelerle denetlenir.
+`accept` komutu önizleme, seçilmiş kaynak, vektör ve raster teslim hedeflerini
+ölçer. Canva ön kontrolü son SVG hash'ini, yerel PDF dönüşümü ise sayfa
+öğelerini ve render karşılaştırmasını kaydeder.
+
+Varsayılan çalışma arşivi korunur. `presentation` görünür adayların
+önizlemelerini taşır. `delivery` dosyayı hedefe özel kabul ve nihai onaya
+bağlar. Pano açık karşılaştırma grupları ile ortak kırpma ve ölçek kullanabilir.
+Üretim kökeni, teknik pilot ve onay alanları isteğe bağlıdır. Yeni ve yanlış
+metadata beyanları reddedilir. Eski artefakt kayıtlarındaki uyuşmazlıklar
+doğrulama uyarısı olarak görünür.
+
 ## 1.1.0
 
 Kurulum ve dağıtım doğrudan Git reposuna taşındı. Kullanıcı için elle klasör

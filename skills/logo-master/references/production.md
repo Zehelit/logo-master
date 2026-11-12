@@ -27,6 +27,8 @@ logo.py commit project.json staging-dir/<transaction-key>/staged.json
 logo.py artifact project.json variant-id artifact-record.json
 logo.py outputs project.json new-panel-dir --kinds inventory panel
 logo.py package project.json new-package-dir
+logo.py package project.json new-presentation-dir --scope presentation
+logo.py package project.json new-delivery-dir --scope delivery --delivery-target raster-delivery
 ```
 
 Bunlar argüman örnekleridir; dosya ve kimlikleri modelden al. İki SVG için işlem sözleşmesi, iki PNG için RGBA karşılaştırması kullanılır. `inspect_svg.py source.svg --compare changed.svg` eski çağrıyla uyumlu salt okunur imza raporudur.
@@ -55,6 +57,10 @@ Tasarım değişikliği yeni varyanttır; format/ölçü/DPI aynı varyantın ç
 `artifact` mevcut dosya/hash kaydını ekler, eski kaydın üzerine yazmaz. `outputs/package` modelden envanter, aktif liste, göreceli varlıklar, manifest ve yan yana HTML çıkarır. Pasif/elenmişler panoya dönmez. Oylama/kayıt/gönderme eklenmez. Font×renk×yerleşim çarpımı kendiliğinden üretilmez. Karşılaştırma çiftlerinde ortak crop/ölçek tercihini koru; pano otomatik optik normalizasyon iddiası taşımaz.
 
 Yeni çıktı kaydında ölçü ve DPI, dosya içeriğiyle karşılaştırılır. Eski çelişkili kayıt `validate` raporunda uyarı olarak görünür. PNG'nin yaklaşık 300 DPI olarak kodladığı normal yuvarlama kabul edilir. PDF sayfa ölçüsü için isteğe bağlı `pypdf` kullanılır. Pano, ölçülen piksel ve görünür alanla bir önizleme seçer. Yetersiz kaynak için uyarı gösterir veya seçilmiş vektörden yerel önizleme üretir.
+
+`archive` varsayılan çalışma arşividir. `presentation` etkin adayları ve seçilen önizleme dosyalarını içerir. `delivery` nihai onay, hedefe uygun teknik kabul ve eşleşen dosya hash'i ister. Kabulden sonra dosya kaydına `acceptance_receipt` altında makbuzun proje içi `path` ve `sha256` değerlerini ekle. `--delivery-target` için `vector-delivery` veya `raster-delivery` kullan.
+
+Varyantın isteğe bağlı `comparison` kaydı `group`, `note`, `[x,y,genişlik,yükseklik]` biçiminde 0–1 aralığında `crop` ve 0–1 aralığında `scale` taşır. Aynı grupta crop ve scale eşleşmelidir. Kayıt yoksa tasarımın mevcut görünüm sırası kullanılır. Pano bağlantıları pakete alınan gerçek önizleme dosyasını açar.
 
 Canlı SVG alıcının fontuna bağlı olabilir. Paylaşım için doğrulanmış PNG artifact veya konturlu teslim kullan. Paket ZIP CRC ve dosya hash'lerini doğrular; yayın, hesap, hosting veya Sites bağlantısı kurmaz. Bilinmeyen model alanlarını silme; paketleme otomatik canlı göç değildir.
 
