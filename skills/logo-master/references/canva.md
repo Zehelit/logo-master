@@ -36,6 +36,12 @@ Font değişimi metin kutusunun ve harflerin kapladığı alanı değiştirebili
 
 ## Dışa aktarma
 
+Canva'ya verilecek son SVG için `logo.py canva-preflight son.svg` çalıştır. Aynı dosya yüklenmeden hemen önce `--expect-sha256` ile makbuzdaki hash'i doğrula. Hatalı ID, eksik iç referans veya dış bağımlılık yüklemeyi durdurur. Çözülen `clip` ve `use` referansları korunur. Bu makbuz yerel girdi denetimidir.
+
+`logo.py pdf-to-svg indirilen.pdf donusum.svg --page 1` yerel Poppler/Inkscape içe aktarımını, sayfa ölçüsünü, font kaynaklarını, raster sayısını ve aynı boyuttaki PDF/SVG render farkını kaydeder. `--repair-unreferenced-ids` yalnız referans taşımayan tekrarları kaldırabilir. `--background-id` ilk katmandaki tam sayfa beyaz dikdörtgen için kullanılabilir ve beyaz zemin renderı korunmazsa çıktı yayınlanmaz. Karmaşık arka plan veya raster düzeltmesi elle incelenir.
+
+Yeni eşlemede `stage_receipts` yerel ön kontrolü, kütüphane yüklemesini, yerleşimi, düzenlemeyi, kaydı, indirmeyi, dosya incelemesini ve karşılaştırmayı ayrı kanıtlarla bağlar. `logo.py canva-state project.json variant-id --observation canva-gozlem.json` dosya hash'leri üzerinden değişimi ölçer. İki taraf da değişmişse `conflict` döner ve kaynak seçimi gerekir. Başlık ve tarih tek başına değişim kanıtı olarak kullanılmaz.
+
 Thumbnail yüksek çözünürlüklü çıktı değildir. İndirme tamamlandı mesajı sonrasında gerçek yerel dosyayı bul, ölçülerini ve hash'ini kaydet. Blob indirme yardımcısı çalışmıyorsa normal indirilen dosyayı doğrula.
 
 SVG veya şeffaf PNG erişimini hesapta canlı kontrol et; abonelik başlatma. Vektör PDF alınabiliyorsa vektörlüğünü doğrulayıp yerel dönüşüm kullanılabilir. Kullanılamayan işlemi tamamlandı sayma. Ekran kanıtı, Canva kaydı ve indirilen dosyayı birbirine bağla.

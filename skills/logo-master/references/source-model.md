@@ -14,6 +14,8 @@ Model dosyası proje kökünde JSON'dur. `load_project(path)` JSON'u okur; `vali
 - `font`: family, weight, style, path, sha256, source_url, license, version ve status. `license_file:{path,sha256}` lisans dosyasını, `redistribution:{allowed:true,evidence:"..."}` pakete font ekleme için doğrulanmış dağıtım kararını taşır; bilinmeyen izin true yapılmaz. Renderer çözümlemesi ayrı kanıttır; modelde isim yazması yeterli değildir. Kontur kaynağında family:null/status:unknown dürüstçe korunabilir; canlı font değişimine uygun diye sunulmaz.
 - `colors`: primary/accent/legal gibi anlamlı roller ve renk değerleri. Renk değişiminde bütün dolguları aynı renge çevirmek varsayılan değildir; hedef bileşen ve korunacak roller belirtilir.
 - `artifacts`: her çıktı için path, sha256, format, width, height, dpi ve üretim kaydı. Format/ölçü/DPI başka tasarım varyantı yaratmaz; görünüm değişikliği yeni varyant oluşturur. Eski çıktılar korunur.
+- İsteğe bağlı `generation`: tool, observed_at, prompt, references, requested, submitted, returned, output ve capability. Referans SHA-256, çıktı yol/hash ve ölçülen biçim/boyutla kaydedilir. Aracın açıklamadığı model veya ayar `returned` içinde null kalabilir. `capability.schema_parameters` ve `schema_evidence` güncel araç sözleşmesine bağlanır.
+- `selection.protected_components` bileşen kimlikleri taşır. İsteğe bağlı `approval` nihai kullanıcı kanıtı ile kaynak SHA-256'sını bağlar. `purpose: technical_pilot` olan projede `technical_pilot` kaydı yalnız kendi project_id, variant_id, source_sha256, operations ve evidence alanlarıyla işleme izin verir. Pilot statüsü estetik seçimi değiştirmez.
 
 Örnek en küçük seçilmiş kaynak:
 

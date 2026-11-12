@@ -1,4 +1,5 @@
 """Local font proof and Inkscape rendering; environment is subprocess-scoped."""
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -6,8 +7,10 @@ import re
 import shutil
 import subprocess
 import tempfile
+import xml.etree.ElementTree as ET
 from .model import read_svg, sha256
-from .audit import audit_svg, style_dict
+from .audit import audit_svg
+from .typography import live_text_runs
 
 _FONT_PROBE = r'''
 import ctypes,ctypes.util,json,sys
@@ -59,7 +62,21 @@ def _executable(env,key,candidates):
         if found:return found
     raise ValueError(key+' yapılandırılmamış; sessiz alternatif kullanılmaz.')
 
-def resolve_font(font_spec: dict, text: str, env: dict) -> dict:
+@contextmanager
+def font_environment(env, specs):
+    directories = sorted({str(Path(item['path']).resolve().parent) for item in specs if item.get('path')})
+    if not directories:
+        yield dict(env)
+        return
+    from xml.sax.saxutils import escape
+    with tempfile.TemporaryDirectory(prefix='logo-font-') as folder:
+        config = Path(folder)/'fonts.conf'
+        dirs = ''.join('<dir>'+escape(directory)+'</dir>' for directory in directories)
+        config.write_text('<fontconfig>'+dirs+'<cachedir>'+escape(folder)+'</cachedir></fontconfig>', encoding='utf-8')
+        yield dict(env, FONTCONFIG_FILE=str(config), PANGOCAIRO_BACKEND='fc')
+
+
+def resolve_font(font_spec: dict, text: str, env: dict, *, shared_config=False) -> dict:
     family=font_spec.get('family');weight=font_spec.get('weight',400);requested_style=font_spec.get('style') or 'normal'
     if not isinstance(family,str) or not family:return {'status':'failed','reason':'font_family_unknown'}
     if requested_style not in ['normal','italic','oblique']:return {'status':'failed','reason':'font_style_unsupported'}
@@ -71,11 +88,7 @@ def resolve_font(font_spec: dict, text: str, env: dict) -> dict:
         path=Path(path)
         if not path.is_file() or (font_spec.get('sha256') and sha256(path)!=font_spec['sha256']):
             return {'status':'failed','reason':'font_file_or_hash_invalid'}
-    with tempfile.TemporaryDirectory(prefix='logo-font-') as folder:
-        if path:
-            from xml.sax.saxutils import escape
-            config=Path(folder)/'fonts.conf';config.write_text('<fontconfig><dir>'+escape(str(path.resolve().parent))+'</dir><cachedir>'+escape(folder)+'</cachedir></fontconfig>',encoding='utf-8')
-            scoped['FONTCONFIG_FILE']=str(config);scoped['PANGOCAIRO_BACKEND']='fc'
+    with font_environment(scoped, [] if shared_config else [font_spec]) as scoped:
         try:
             probe=subprocess.run([python,'-c',_FONT_PROBE],input=json.dumps({'family':family,'weight':weight,'style':font_spec.get('style'),'text':text}),capture_output=True,text=True,encoding='utf-8',env=scoped,timeout=45,check=True)
             result=json.loads(probe.stdout)
@@ -86,58 +99,100 @@ def resolve_font(font_spec: dict, text: str, env: dict) -> dict:
     if path:
         observed=result.get('font_file')
         matched=matched and bool(observed) and Path(observed).resolve()==path.resolve()
-    result.update(status='passed' if matched else 'failed',requested_family=family,requested_weight=weight,requested_style=requested_style)
     if result.get('font_file') and Path(result['font_file']).is_file():result['font_file_sha256']=sha256(result['font_file'])
+    if font_spec.get('sha256'):
+        matched = matched and result.get('font_file_sha256') == font_spec['sha256']
+    result.update(status='passed' if matched else 'failed',requested_family=family,requested_weight=weight,requested_style=requested_style)
     return result
 
-def _run_inkscape(source,target,args,env):
+class RendererError(ValueError):
+    def __init__(self, stage, message, *, cause=None):
+        super().__init__(message)
+        self.stage = stage
+        self.cause = cause
+
+
+def _run_inkscape(source, target, args, env, *, png_size=None):
     source,target=Path(source),Path(target)
     if source.resolve()==target.resolve() or target.exists():raise ValueError('Yeni, mevcut olmayan çıktı yolu gerekli.')
     audit=audit_svg(source)
     if audit['errors'] or any(r['kind']=='external' for r in audit['references']):raise ValueError('Geçersiz veya dış varlığa bağlı SVG render edilmez.')
     exe=_executable(env,'LOGO_INKSCAPE',['inkscape.com','inkscape'])
+    source_hash = sha256(source)
     target.parent.mkdir(parents=True,exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='logo-render-') as folder:
+    with tempfile.TemporaryDirectory(prefix='.logo-render-', dir=target.parent) as folder:
         staged=Path(folder)/target.name
-        ret=subprocess.run([exe,str(source),*args,f'--export-filename={staged}'],capture_output=True,text=True,env=dict(env),timeout=90,check=True)
-        if not staged.is_file():raise ValueError('Renderer çıktı oluşturmadı.')
-        shutil.copyfile(staged,target)
-    return {'status':'passed','path':str(target.resolve()),'sha256':sha256(target),'source_sha256':sha256(source),'renderer':exe,'stderr':ret.stderr.strip()}
+        try:
+            ret=subprocess.run([exe,str(source),*args,f'--export-filename={staged}'],capture_output=True,text=True,env=dict(env),timeout=90,check=True)
+        except subprocess.TimeoutExpired as exc:
+            raise RendererError('renderer_execution', 'Renderer zaman aşımına uğradı.', cause='timeout') from exc
+        except subprocess.CalledProcessError as exc:
+            raise RendererError('renderer_execution', f'Renderer çıkış kodu {exc.returncode}.', cause='exit_code') from exc
+        except OSError as exc:
+            raise RendererError('renderer_execution', str(exc), cause='launch_failed') from exc
+        try:
+            if png_size:
+                from PIL import Image
+                with Image.open(staged) as image:
+                    if image.format != 'PNG' or image.size != png_size:
+                        raise ValueError(f'Beklenen PNG boyutu {png_size}; bulunan {image.format} {image.size}.')
+                    image.verify()
+            else:
+                tree = read_svg(staged)
+                if any(node.tag.split('}')[-1] == 'text' for node in tree.iter()):
+                    raise ValueError('Konturlu çıktıda canlı metin kaldı.')
+                check = audit_svg(staged)
+                if check['errors'] or any(ref['kind'] == 'external' for ref in check['references']):
+                    raise ValueError('Konturlu çıktıda geçersiz SVG veya dış referans var.')
+            if sha256(source) != source_hash:
+                raise ValueError('Kaynak render sırasında değişti.')
+        except (OSError, ValueError, ET.ParseError) as exc:
+            raise RendererError('renderer_output', str(exc), cause='invalid_output') from exc
+        try:
+            os.link(staged, target)
+        except OSError as exc:
+            raise RendererError('renderer_publish', str(exc), cause='publish_failed') from exc
+    return {'status':'passed','path':str(target.resolve()),'sha256':sha256(target),'source_sha256':source_hash,'renderer':exe,'stderr':ret.stderr.strip()}
 
-def render_svg(source: Path, target: Path, width: int, height: int, env: dict) -> dict:
+def render_svg(source: Path, target: Path, width: int, height: int, env: dict, *, font_specs=None) -> dict:
     if type(width) is not int or type(height) is not int or min(width,height)<=0:raise ValueError('Pozitif piksel ölçüleri gerekli.')
     if Path(target).suffix.lower()!='.png':raise ValueError('Render çıktısı PNG olmalı.')
-    checks=validate_live_fonts(source,env)
-    result=_run_inkscape(source,target,[f'--export-width={width}',f'--export-height={height}'],env)
+    with font_environment(env, (font_specs or {}).values()) as scoped:
+        checks=validate_live_fonts(source,scoped,font_specs=font_specs,shared_config=True)
+        result=_run_inkscape(source,target,[f'--export-width={width}',f'--export-height={height}'],scoped,png_size=(width,height))
     result['font_checks']=checks
     return result
 
-def validate_live_fonts(source: Path, env: dict) -> list:
-    tree=read_svg(source);checks=[]
-    if any(n.tag.split('}')[-1]=='text' for n in tree.iter()) and any(n.tag.split('}')[-1]=='style' or n.get('class') for n in tree.iter()):
+def validate_live_fonts(source: Path, env: dict, *, font_specs=None, shared_config=False) -> list:
+    runs, css = live_text_runs(read_svg(source))
+    checks = []
+    font_specs = font_specs or {}
+    if runs and css:
         raise ValueError('CSS seçicili canlı metnin fontu bu çözümleyiciyle kanıtlanamaz; açık font özelliklerine dönüştür.')
-    def prove(style,text):
-        if style.get('font'):raise ValueError('Font shorthand çözümlenmeden font kanıtı üretilemez.')
-        family=style.get('font-family','').strip().strip("'\"")
-        weight=style.get('font-weight','400');weight={'normal':'400','bold':'700'}.get(weight,weight)
-        if not weight.isdigit():raise ValueError('Font ağırlığı çözümlenemedi.')
-        proof=resolve_font({'family':family,'weight':int(weight),'style':style.get('font-style')},text,env)
+    observed_ids = set()
+    for run in runs:
+        if not run['text'].strip():
+            continue
+        spec = run['font']
+        if not spec:
+            raise ValueError('Canlı metnin etkin font tanımı çözümlenemedi.')
+        ident = run['svg_id']
+        pinned = font_specs.get(ident, {})
+        for key, value in spec.items():
+            if key in pinned and str(pinned[key]).casefold() != str(value).casefold():
+                raise ValueError(f'Model ve renderer girdisindeki {key} farklı ({ident}).')
+        proof=resolve_font({**spec, **pinned},run['text'],env,shared_config=shared_config)
         if proof['status']!='passed':raise ValueError('Font ikamesi/eksik glif: '+json.dumps(proof,ensure_ascii=False))
+        proof.update(svg_id=ident, text=run['text'], requested_font_sha256=pinned.get('sha256'))
         checks.append(proof)
-    def walk(node,inherited,in_text=False):
-        style=dict(inherited);style.update({k:v for k,v in node.attrib.items() if k.startswith('font-')});style.update(style_dict(node.get('style','')))
-        in_text=in_text or node.tag.split('}')[-1]=='text'
-        if in_text and (node.text or '').strip():prove(style,node.text)
-        for child in node:
-            walk(child,style,in_text)
-            if in_text and (child.tail or '').strip():prove(style,child.tail)
-    walk(tree,{})
+        observed_ids.add(ident)
+    if set(font_specs) - observed_ids:
+        raise ValueError('Modeldeki font kaydı için render edilen SVG metin kimliği bulunamadı.')
     return checks
 
-def outline_svg(source: Path, target: Path, env: dict) -> dict:
-    checks=validate_live_fonts(source,env)
-    result=_run_inkscape(source,target,['--actions=select-all:all;object-to-path','--export-plain-svg'],env)
-    if any(n.tag.split('}')[-1]=='text' for n in read_svg(target).iter()):
-        Path(target).unlink();raise ValueError('Konturlu çıktıda canlı metin kaldı.')
+def outline_svg(source: Path, target: Path, env: dict, *, font_specs=None) -> dict:
+    with font_environment(env, (font_specs or {}).values()) as scoped:
+        checks=validate_live_fonts(source,scoped,font_specs=font_specs,shared_config=True)
+        result=_run_inkscape(source,target,['--actions=select-all:all;object-to-path','--export-plain-svg'],scoped)
     result['font_checks']=checks
     return result

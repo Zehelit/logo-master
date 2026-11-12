@@ -4,6 +4,10 @@ import json
 import math
 from pathlib import Path, PureWindowsPath
 import xml.etree.ElementTree as ET
+from .assets import declaration_conflicts, inspect_asset, read_svg
+from .canva_records import stage_errors
+from .provenance import generation_errors, pilot_allows
+from .typography import live_text_runs
 
 
 def sha256(path):
@@ -26,16 +30,6 @@ def safe_path(root, relative):
     return target
 
 
-def read_svg(path):
-    raw = Path(path).read_bytes()
-    if b'<!DOCTYPE' in raw.upper() or b'<!ENTITY' in raw.upper():
-        raise ValueError('SVG içinde DTD/entity desteklenmiyor.')
-    tree = ET.fromstring(raw)
-    if tree.tag.split('}')[-1] != 'svg':
-        raise ValueError('SVG kökü bulunamadı.')
-    return tree
-
-
 def variants(project):
     for design in project.get('designs', []):
         for variant in design.get('variants', []):
@@ -53,7 +47,8 @@ def validate_project(project: dict, root: Path) -> dict:
     errors, warnings, assets = [], [], []
     def add(code, message, context=''):
         errors.append({'code': code, 'message': message, 'context': context})
-    def asset(spec, context):
+    observations = {}
+    def asset(spec, context, *, visual=False):
         if not isinstance(spec, dict):
             add('asset_invalid', 'Varlık kaydı nesne olmalı.', context); return None
         try: path = safe_path(root, spec.get('path'))
@@ -64,7 +59,12 @@ def validate_project(project: dict, root: Path) -> dict:
         digest = sha256(path)
         if digest != spec.get('sha256'):
             add('hash_mismatch', 'Varlık hash kaydı gerçek dosyayla uyuşmuyor.', context)
-        assets.append({'path': str(path), 'sha256': digest, 'context': context})
+        record = {'path': str(path), 'sha256': digest, 'context': context}
+        if visual:
+            if path not in observations:
+                observations[path] = inspect_asset(path)
+            record['observed'] = observations[path]
+        assets.append(record)
         return path
     if not isinstance(project, dict):
         return {'status':'failed','errors':[{'code':'project_invalid','message':'Proje nesne olmalı.'}],'warnings':[],'assets':[]}
@@ -134,14 +134,23 @@ def validate_project(project: dict, root: Path) -> dict:
             source = variant.get('source', {})
             if source.get('kind') not in ['vector', 'hybrid', 'raster']:
                 add('source_kind', 'Kaynak türü vector/hybrid/raster olmalı.', context)
-            source_path = asset(source, context)
-            node_ids = None
-            if source_path and source_path.suffix.lower() == '.svg':
+            source_path = asset(source, context, visual=True)
+            nodes = None
+            observed = observations.get(source_path, {})
+            kind = observed.get('kind')
+            if kind and kind != source.get('kind'):
+                add('source_kind_mismatch', f"Beyan edilen tür {source.get('kind')}; dosyada ölçülen {kind}.", context)
+            elif source_path and not kind:
+                if source_path.suffix.lower() == '.svg' or observed.get('reason') == 'xml_not_readable_as_svg':
+                    add('svg_invalid', observed.get('detail', 'Dosya SVG olarak okunamadı.'), context)
+                else:
+                    warnings.append({'code':'source_kind_unmeasured','context':context,'observed':observed})
+            if observed.get('format') == 'svg':
                 try:
                     tree = read_svg(source_path)
                     ids = [n.get('id') for n in tree.iter() if n.get('id')]
                     if len(ids) != len(set(ids)): add('svg_duplicate_id', 'SVG id çakışması var.', context)
-                    node_ids = set(ids)
+                    nodes = {node.get('id'):node for node in tree.iter() if node.get('id')}
                 except (ValueError, ET.ParseError) as exc:
                     add('svg_invalid', str(exc), context)
             component_ids = set()
@@ -150,7 +159,7 @@ def validate_project(project: dict, root: Path) -> dict:
                 if not cid or cid in component_ids:
                     add('component_identity', 'Bileşen kimliği boş veya yinelenmiş.', context)
                 component_ids.add(cid)
-                if node_ids is not None and comp.get('svg_id') not in node_ids:
+                if nodes is not None and comp.get('svg_id') not in nodes:
                     add('component_missing', 'Kaynak SVG bileşen düğümünü içermiyor.', context + '/' + str(cid))
                 kind = comp.get('kind')
                 if kind not in ['vector', 'raster', 'live_text', 'outlined']:
@@ -161,6 +170,21 @@ def validate_project(project: dict, root: Path) -> dict:
                         add('live_font_unknown', 'Canlı metnin gerçek font ailesi bilinmeli.', context)
                     if not comp.get('text'):
                         add('live_text_missing', 'Canlı metin içeriği gerekli.', context)
+                    if nodes is not None and comp.get('svg_id') in nodes:
+                        text_context = context + '/' + cid
+                        runs, css = live_text_runs(tree, nodes[comp['svg_id']])
+                        actual = ''.join(run['text'] for run in runs)
+                        if actual != comp.get('text'):
+                            add('live_text_mismatch', f"Model metni {comp.get('text')!r}; SVG metni {actual!r}.", text_context)
+                        fonts = [run['font'] for run in runs if run['text'].strip()]
+                        if fonts and (css or not all(fonts) or any(item != fonts[0] for item in fonts)):
+                            warnings.append({'code':'live_font_needs_review','context':text_context,'status':'needs_review','runs':runs})
+                        elif fonts and font.get('family'):
+                            actual_font = fonts[0]
+                            for key, declared in [('family',font['family']),('weight',font.get('weight',400)),('style',font.get('style','normal'))]:
+                                observed = actual_font[key]
+                                if str(declared).casefold() != str(observed).casefold():
+                                    add('live_font_'+key+'_mismatch', f'Model {key}={declared!r}; SVG {key}={observed!r}.', text_context)
                     if font.get('path'):
                         asset(font, context + '/font')
                         if font.get('license_file'): asset(font['license_file'],context+'/font_license')
@@ -169,10 +193,44 @@ def validate_project(project: dict, root: Path) -> dict:
                         warnings.append({'code': 'font_file_unverified', 'context': context, 'message': 'Font dosyası ve renderer çözümlemesi ayrıca doğrulanmalı.'})
                 if kind == 'outlined' and not font.get('family'):
                     warnings.append({'code': 'font_unknown_outlined', 'context': context, 'message': 'Konturlar korunabilir; canlı font ailesi değiştirme kanıtı yok.'})
-            for output in variant.get('artifacts', []): asset(output, context + '/artifact')
+            for output in variant.get('artifacts', []):
+                output_path = asset(output, context + '/artifact', visual=True)
+                if output_path:
+                    measurement = observations[output_path]
+                    if measurement['status'] != 'measured':
+                        warnings.append({'code':'artifact_unmeasured','context':context,'path':output['path'],'observed':measurement})
+                    for conflict in declaration_conflicts(output, measurement):
+                        warnings.append({'code':'artifact_metadata_mismatch','context':context,'path':output['path'],**conflict})
+            if 'generation' in variant:
+                generation = variant['generation']
+                problems = generation_errors(generation)
+                for problem in problems:
+                    add('generation_record_invalid',problem,context)
+                if not problems:
+                    output = generation['output']
+                    path = asset(output,context+'/generation_output',visual=True)
+                    if path and (observations[path]['status'] != 'measured' or declaration_conflicts(output,observations[path])):
+                        add('generation_output_metadata','Üretilen dosyanın metadata beyanı ölçümle uyuşmuyor.',context)
+                    for ref in generation.get('references', []):
+                        if ref.get('path'):
+                            asset(ref,context+'/generation_reference')
+            if 'technical_pilot' in variant:
+                pilot = variant['technical_pilot']
+                operations = pilot.get('operations',[]) if isinstance(pilot,dict) else []
+                if not operations or not all(pilot_allows(project,variant,op) for op in operations):
+                    add('technical_pilot_invalid','Teknik deney proje, varyant ve mevcut kaynak hash’ine bağlanmalı.',context)
+            protected = selection.get('protected_components',[])
+            if not isinstance(protected,list) or any(not isinstance(item,str) or item not in component_ids for item in protected):
+                add('protected_component_invalid','Korunacak bileşen kimliği modelde bulunamadı.',context)
+            if 'approval' in variant:
+                approval = variant['approval']
+                if not isinstance(approval,dict) or approval.get('status') != 'approved' or approval.get('source_sha256') != source.get('sha256') or not approval.get('evidence'):
+                    add('final_approval_invalid','Nihai onay mevcut kaynak hash’ine ve kullanıcı kanıtına bağlanmalı.',context)
             canva = variant.get('canva') or {}
             if canva.get('source_sha256') and canva['source_sha256'] != source.get('sha256'):
                 add('canva_source_mismatch', 'Canva eşlemesi başka kaynak sürümüne bağlı; sessiz aktarım yapılamaz.', context)
+            for problem in stage_errors(canva, vid):
+                add('canva_stage_evidence_invalid',problem,context)
         for child, parent in parent_map.items():
             if parent is not None and parent not in parent_map:
                 add('parent_missing', 'Ebeveyn aynı tasarım içinde bulunamadı.', child); continue

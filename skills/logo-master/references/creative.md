@@ -10,6 +10,8 @@ Marka adını, Türkçe karakterleri, zorunlu alt satırları, kısa kullanım i
 
 Image Gen amblem fikri, siluet ve karakter için kullanılabilir. Yazıları seçilmiş gerçek fontlarla ayrıca diz. Üretilen yazıyı gerçek fontmuş gibi sunma. Araç model sürümünü göstermiyorsa son sürüm garantisi verme.
 
+Ürün belgesini, güncel Codex çağrı şemasını ve gerçek çağrı sonucunu kendi kanıtlarıyla kaydet. `quality`, `complexity`, boyut ve model ancak çağrı şeması alan olarak sunarsa seçilebilir. Promptta istenen ölçüyü dosyada ölçülen boyuttan ayır. Aynı prompttan farklı görüntüler çıkması model değişimini kanıtlamaz.
+
 Sade nötr zemin, karşılaştırılabilir ölçü ve okunaklı yazılar kullan. İlk seçimde metal/ışık/doku mockup'larının etkisini önle. Görseli gerçekten göster; yalnız üretildiğini söyleme. Thumbnail büyütmek yerine yeterli çözünürlüklü dosya kullan.
 
 ## Seçim kaydı
@@ -19,6 +21,8 @@ Brief, aday gösterimi, kullanıcı seçimi, teknik yeterlilik ve nihai onay ayr
 Her aday sabit kimlik alsın. Kullanıcı mesajından seçilen adayları, korunacak amblem/yazı/oran/renk öğelerini, istenen değişiklikleri ve elenenleri kaydet. Hiçbir aday seçilmemişse yeni keşif yap veya değerlendirmeyi bekle. Kendi beğenini kullanıcı seçimi yerine koyma.
 
 Yalnız amblem seçildiyse fontu onaylanmış sayma. Farklı adayların parçalarını birleştirmek yeni bir görsel karar olabilir; birleşimi göster. Teknik aşama öncesinde hangi özelliklerin korunacağı anlaşılır olmalı.
+
+İzole teknik deneyi ayrı projede aç ve hangi kaynak hash'inde hangi işlemlerin yetkili olduğunu kaydet. Pilot varlıkları patron panosuna ve onaylı teslime girmez.
 
 ## Bütün kompozisyonu değerlendirme
 

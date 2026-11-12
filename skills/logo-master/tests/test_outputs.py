@@ -1,11 +1,13 @@
 import copy
+from contextlib import redirect_stderr
+import io
 import json
 from pathlib import Path
 import sys
 import tempfile
 import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'scripts'))
-from logo_core.model import sha256
+from logo_core.model import sha256, validate_project
 try:
     from logo_core.outputs import stage_variant, commit_variant, build_outputs, register_artifact
 except ImportError:
@@ -51,8 +53,53 @@ class OutputTests(unittest.TestCase):
         with self.assertRaises(ValueError):build_outputs(self.p,self.root/'delivery',['package'])
     def test_export_registration_does_not_add_variant(self):
         from PIL import Image
-        path=self.root/'out.png';Image.new('RGBA',(10,10)).save(path)
+        path=self.root/'out.png';Image.new('RGBA',(10,10)).save(path,dpi=(300,300))
         register_artifact(self.path,'v1',{'path':'out.png','sha256':sha256(path),'format':'png','dpi':300})
         p=json.loads(self.path.read_text());self.assertEqual(len(p['designs'][0]['variants']),1);self.assertEqual(len(p['designs'][0]['variants'][0]['artifacts']),1)
+
+    def test_cli_artifact_refuses_false_metadata_without_changing_project(self):
+        from PIL import Image
+        from logo import main
+        path = self.root/'small.dat'
+        Image.new('RGBA', (16, 16)).save(path, format='PNG', dpi=(96, 96))
+        record = self.root/'record.json'
+        record.write_text(json.dumps({'path':path.name,'sha256':sha256(path),'format':'png','width':2000,'height':2000,'dpi':300}), encoding='utf-8')
+        initial = sha256(self.path)
+        with redirect_stderr(io.StringIO()) as errors:
+            self.assertEqual(main(['artifact', str(self.path), 'v1', str(record)]), 1)
+        message = json.loads(errors.getvalue())['error']
+        self.assertIn('"declared": 2000', message)
+        self.assertIn('"observed": 16', message)
+        self.assertEqual(sha256(self.path), initial)
+
+    def test_source_kind_comes_from_contents_even_with_misleading_extension(self):
+        disguised = self.root/'source.dat'
+        disguised.write_text('<svg xmlns="http://www.w3.org/2000/svg"><image id="mark" width="100" height="100"/></svg>', encoding='utf-8')
+        source = self.p['designs'][0]['variants'][0]['source']
+        source.update(path=disguised.name, sha256=sha256(disguised))
+        report = validate_project(self.p, self.root)
+        self.assertIn('source_kind_mismatch', {error['code'] for error in report['errors']})
+        source['kind'] = 'hybrid'
+        self.assertEqual(validate_project(self.p, self.root)['status'], 'passed')
+
+    def test_panel_prefers_measured_visible_resolution_to_preview_role_or_first_png(self):
+        from PIL import Image
+        artifacts = self.p['designs'][0]['variants'][0]['artifacts']
+        for name, size, visible, role in [('small.png',16,16,'preview'),('padded.png',1024,8,'preview'),('large.dat',512,480,'export')]:
+            path = self.root/name
+            with Image.new('RGBA', (size, size)) as image:
+                image.paste('red', (0, 0, visible, visible))
+                image.save(path, format='PNG')
+            artifacts.append({'path':path.name,'sha256':sha256(path),'format':'png','role':role,'width':2000})
+        report = validate_project(self.p, self.root)
+        self.assertEqual(report['status'], 'passed')
+        self.assertEqual(sum(warning['code'] == 'artifact_metadata_mismatch' for warning in report['warnings']), 3)
+        delivery = self.root/'delivery'
+        result = build_outputs(self.p, delivery, ['panel'])
+        self.assertEqual(result['panel_warnings'], [])
+        markup = (delivery/'index.html').read_text(encoding='utf-8')
+        self.assertIn(f'assets/{artifacts[-1]["sha256"]}.png', markup)
+        self.assertNotIn(artifacts[0]['sha256'], markup)
+        self.assertNotIn(artifacts[1]['sha256'], markup)
 
 if __name__=='__main__':unittest.main()

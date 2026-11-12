@@ -37,6 +37,17 @@ class EditTests(unittest.TestCase):
     def test_candidate_cannot_enter_production(self):
         self.project['designs'][0]['variants'][0]['selection']={'status':'candidate'}
         with self.assertRaises(ValueError):apply_edit(self.project,self.op('scale',{'factor':.75}),self.root/'out')
+    def test_isolated_pilot_authorizes_only_bound_operation(self):
+        self.project.update(project_id='pilot',purpose='technical_pilot')
+        row = self.project['designs'][0]['variants'][0]
+        row['selection'] = {'status':'candidate'}
+        row['technical_pilot'] = {'project_id':'pilot','variant_id':'v1','source_sha256':self.digest,
+                                  'operations':['scale'],'evidence':'test fixture'}
+        result = apply_edit(self.project,self.op('scale',{'factor':.75}),self.root/'permitted')
+        self.assertTrue(result['technical_pilot'])
+        self.assertEqual(row['selection']['status'],'candidate')
+        with self.assertRaises(ValueError):
+            apply_edit(self.project,self.op('recolor',{'replacements':{'#2584c9':'red'}}),self.root/'unpermitted')
     def test_existing_output_not_overwritten(self):
         (self.root/'out').mkdir();(self.root/'out/source.svg').write_text('protected')
         with self.assertRaises(ValueError):apply_edit(self.project,self.op('scale',{'factor':.75}),self.root/'out')

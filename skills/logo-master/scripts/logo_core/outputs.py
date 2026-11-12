@@ -6,6 +6,7 @@ import html
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import tempfile
 import zipfile
@@ -13,6 +14,9 @@ import uuid
 from .model import load_project, validate_project, safe_path, sha256, find_variant, variants
 from .edit import write_json
 from .audit import audit_svg
+from .assets import declaration_conflicts, inspect_asset
+from .render import render_svg
+from .provenance import is_technical_pilot, pilot_allows
 
 def _publish_asset(asset,destination,expected_hash):
     # Only the complete verified inode becomes visible at the final path.
@@ -27,13 +31,16 @@ def _publish_asset(asset,destination,expected_hash):
     finally:
         if temporary.exists():temporary.unlink()
 
-def atomic_json(path, value):
+def atomic_json(path, value, *, exclusive=False):
     path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
     fd, name = tempfile.mkstemp(prefix='.logo-', suffix='.json', dir=path.parent)
     try:
         with os.fdopen(fd, 'w', encoding='utf-8') as stream:
             json.dump(value, stream, ensure_ascii=False, indent=2); stream.write('\n'); stream.flush(); os.fsync(stream.fileno())
-        os.replace(name, path)
+        if exclusive:
+            os.link(name, path)
+        else:
+            os.replace(name, path)
     finally:
         if Path(name).exists(): Path(name).unlink()
 
@@ -96,6 +103,8 @@ def commit_variant(project_path: Path, staged: dict, _fail_after_move=False) -> 
         if design['id'] != edit['design_id']: raise ValueError('Ebeveyn tasarım uyuşmazlığı.')
         if parent['source']['sha256'] != edit['original_sha256'] or sha256(safe_path(root,parent['source']['path'])) != edit['original_sha256']:
             raise ValueError('Düzenleme eski ebeveyn kaynağına bağlı.')
+        if is_technical_pilot(project) and not pilot_allows(project,parent,edit['operation']['kind']):
+            raise ValueError('Teknik deney için işleme ve kaynağa bağlı yetki gerekli.')
         asset = Path(staged['asset_path'])
         if not asset.is_file() or sha256(asset) != staged['asset_sha256']: raise ValueError('Staging varlığı/hash bozuk.')
         if not journal:
@@ -105,7 +114,14 @@ def commit_variant(project_path: Path, staged: dict, _fail_after_move=False) -> 
                 if pending.get('design_id') == design['id']: reserved.append(pending['variant']['number'])
             number = max(reserved, default=0)+1
             row = copy.deepcopy(parent); row.update(id=f"{design['id']}-v{number}", number=number, parent_id=parent['id'], artifacts=[])
-            row.pop('canva', None); row['selection'] = {'status':'selected','evidence':parent['selection']['evidence'], 'note':'Yetkili revizyon; nihai estetik onay aktarılmadı.'}
+            for key in ('canva','approval','generation','technical_pilot'):
+                row.pop(key,None)
+            if is_technical_pilot(project):
+                row['selection'] = {'status':'candidate','note':'İzole teknik deney.'}
+            else:
+                row['selection'] = {'status':'selected','evidence':parent['selection']['evidence'], 'note':'Yetkili revizyon; nihai estetik onay aktarılmadı.'}
+                if parent['selection'].get('protected_components'):
+                    row['selection']['protected_components'] = parent['selection']['protected_components']
             relative = f"variants/{hashlib.sha256(design['id'].encode()).hexdigest()[:16]}/v{number}/source{asset.suffix}"
             row['source'] = {'path':relative,'sha256':staged['asset_sha256'],'kind':edit['source']['kind']}
             row['operation'] = edit['operation']
@@ -139,8 +155,74 @@ def register_artifact(project_path, variant_id, artifact):
             if old['path'] == artifact['path']:
                 if old != artifact: raise ValueError('Eski çıktı kaydı üzerine yazılamaz; yeni yol kullan.')
                 return {'status':'passed','idempotent':True}
+        observed = inspect_asset(path)
+        conflicts = declaration_conflicts(artifact, observed)
+        if observed['status'] != 'measured' or conflicts:
+            raise ValueError('Çıktı metadata doğrulanamadı. '+json.dumps({'conflicts':conflicts,'observed':observed},ensure_ascii=False))
         row.setdefault('artifacts', []).append(artifact); atomic_json(project_path, project)
-    return {'status':'passed','variant_id':variant_id}
+    return {'status':'passed','variant_id':variant_id,'observed':observed}
+
+
+def _panel_preview(variant, measurements):
+    """Choose a portable image using the desktop tile's fitted display size."""
+    rasters, vectors = [], []
+    for record in [*variant.get('artifacts', []), variant['source']]:
+        path = record['path']
+        observed = measurements.get(path, {})
+        preview_role = record.get('role') in {'preview', 'panel_preview'}
+        if observed.get('format') == 'svg' and observed['kind'] == 'vector' and not observed['live_text']:
+            vectors.append((preview_role, path))
+        if observed.get('format') not in {'png', 'jpeg', 'webp'} or not observed.get('visible_bbox'):
+            continue
+        width, height = observed['size']
+        x0, y0, x1, y1 = observed['visible_bbox']
+        scale = min(560 / width, 360 / height)
+        displayed_mark = max(x1 - x0, y1 - y0) * scale
+        adequate = scale <= 1 and displayed_mark >= 72
+        rasters.append((adequate, preview_role if adequate else False, min(1, 1/scale), displayed_mark, path))
+    best = max(rasters, default=None)
+    if best and best[0]:
+        return best[-1], None
+    if vectors:
+        return max(vectors)[-1], None
+    if best:
+        return best[-1], 'Eldeki önizleme, sunum kutusu için düşük çözünürlüklü veya çizim alanı küçük.'
+    return None, 'Paylaşılabilir önizleme için görünür bir raster çıktı veya konturlu SVG gerekli.'
+
+
+def _generate_panel_preview(variant, stage, measurements):
+    source = variant['source']['path']
+    observed = measurements.get(source, {})
+    if variant['selection']['status'] not in {'selected', 'approved'} or observed.get('kind') != 'vector':
+        return None, None
+    if not (os.environ.get('LOGO_INKSCAPE') or shutil.which('inkscape.com') or shutil.which('inkscape')):
+        return None, 'Önizleme render aracı bulunamadı.'
+    size = observed.get('size')
+    if not size and observed.get('view_box'):
+        try:
+            size = [float(value) for value in re.split(r'[,\s]+', observed['view_box'].strip())][2:]
+        except ValueError:
+            size = None
+    if not size or len(size) != 2 or not all(0 < value < float('inf') for value in size):
+        return None, 'Vektör kaynakta önizleme için tuval oranı çözümlenemedi.'
+    width, height = size
+    scale = 768 / max(width, height)
+    font_specs = {}
+    for component in variant.get('components', []):
+        spec = component.get('font')
+        if component.get('kind') == 'live_text' and spec and component.get('svg_id'):
+            font_specs[component['svg_id']] = {**spec, **({'path':stage/spec['path']} if spec.get('path') else {})}
+    preview_key = hashlib.sha256((variant['id'] + ':' + sha256(stage/source)).encode()).hexdigest()
+    path = stage/'assets'/f'preview-{preview_key}.png'
+    try:
+        if not path.exists():
+            render_svg(stage/source, path, max(1, round(width*scale)), max(1, round(height*scale)), dict(os.environ), font_specs=font_specs)
+        if not inspect_asset(path).get('visible_bbox'):
+            return None, 'Renderer görünür logo içeren bir önizleme üretmedi.'
+    except (OSError, ValueError) as exc:
+        return None, 'Kaynak önizlemesi üretilemedi. '+str(exc)
+    return path.relative_to(stage).as_posix(), None
+
 
 def build_outputs(project: dict, output_dir: Path, kinds: list[str]) -> dict:
     if set(kinds)-{'inventory','panel','package'}: raise ValueError('Bilinmeyen çıktı türü.')
@@ -154,7 +236,7 @@ def build_outputs(project: dict, output_dir: Path, kinds: list[str]) -> dict:
                 if not isinstance(permission,dict) or permission.get('allowed') is not True or not permission.get('evidence') or not font.get('license_file') or str(font.get('license','')).casefold() in ['no-redistribution','unknown','restricted']:
                     raise ValueError('Font dağıtımı için doğrulanmış license_file ve redistribution:{allowed:true,evidence:...} gerekli; aksi halde konturlu/raster teslim kullan.')
     for asset in report['assets']:
-        if Path(asset['path']).suffix.lower()=='.svg':
+        if asset.get('observed', {}).get('format') == 'svg':
             check=audit_svg(Path(asset['path']))
             if check['errors'] or any(r['kind']=='external' for r in check['references']):
                 raise ValueError('Paketlemeden önce SVG dış bağımlılıklarını göm veya bağımsızlaştır; URI otomatik yeniden yazılmaz.')
@@ -164,10 +246,17 @@ def build_outputs(project: dict, output_dir: Path, kinds: list[str]) -> dict:
     with tempfile.TemporaryDirectory(prefix='.logo-output-', dir=output_dir.parent) as folder:
         stage = Path(folder)/'delivery'; stage.mkdir(); (stage/'assets').mkdir()
         portable = copy.deepcopy({k:v for k,v in project.items() if k != '_root'}); mapping = {}
+        measurements = {}
         for asset in report['assets']:
-            path = Path(asset['path']); relative = f"assets/{asset['sha256']}{path.suffix.lower()}"
+            path = Path(asset['path'])
+            observed = asset.get('observed')
+            actual_format = (observed or {}).get('format')
+            suffix = f'.{actual_format}' if actual_format else path.suffix.lower()
+            relative = f"assets/{asset['sha256']}{suffix}"
             if not (stage/relative).exists(): shutil.copyfile(path, stage/relative)
             mapping[str(path.resolve())] = relative
+            if observed:
+                measurements[relative] = observed
         def rewrite(value):
             if isinstance(value, dict):
                 if 'path' in value and 'sha256' in value:
@@ -177,17 +266,29 @@ def build_outputs(project: dict, output_dir: Path, kinds: list[str]) -> dict:
                 for child in value: rewrite(child)
         rewrite(portable); write_json(stage/'project.json', portable)
         if validate_project(portable,stage)['errors']:raise ValueError('Taşınabilir model doğrulanamadı.')
-        active = [{'design_id':d['id'],'variant_id':v['id']} for d,v in variants(portable) if v['active'] and v['selection']['status'] != 'rejected']
+        active = [{'design_id':d['id'],'variant_id':v['id']} for d,v in variants(portable) if not is_technical_pilot(portable) and v['active'] and v['selection']['status'] != 'rejected']
+        active_ids = {row['variant_id'] for row in active}
         write_json(stage/'active.json', active)
+        panel_warnings = []
         if 'panel' in kinds or 'package' in kinds:
             cards = []
             for d in portable['designs']:
                 views = []
                 for v in d['variants']:
-                    if not v['active'] or v['selection']['status'] == 'rejected': continue
-                    preview = next((a for a in v.get('artifacts', []) if a.get('format') == 'png'), v['source'])
+                    if v['id'] not in active_ids: continue
+                    preview, warning = _panel_preview(v, measurements)
+                    if warning:
+                        generated, detail = _generate_panel_preview(v, stage, measurements)
+                        if generated:
+                            preview, warning = generated, None
+                        elif detail:
+                            warning += ' '+detail
                     label = html.escape(f"{v['id']} · varyant {v['number']}")
-                    views.append(f'<figure><div class="art"><img loading="lazy" src="{html.escape(preview["path"],quote=True)}" alt="{label}"></div><figcaption>{label}</figcaption></figure>')
+                    image = f'<img loading="lazy" src="{html.escape(preview,quote=True)}" alt="{label}">' if preview else ''
+                    note = f'<p>{html.escape(warning)}</p>' if warning else ''
+                    if warning:
+                        panel_warnings.append({'variant_id':v['id'], 'message':warning, 'preview':preview})
+                    views.append(f'<figure><div class="art">{image}</div><figcaption>{label}{note}</figcaption></figure>')
                 if views: cards.append(f'<section><h2>{html.escape(d.get("name",d["id"]))}</h2><div class="views">'+''.join(views)+'</div></section>')
             title = html.escape(portable['brand']['name'])
             css = 'body{margin:0;background:#eef1f5;color:#182739;font:16px system-ui,sans-serif}main{max-width:1400px;margin:auto;padding:40px 24px}h1{font-size:36px;letter-spacing:-1px}header{margin-bottom:36px}section{margin:24px 0;background:white;border:1px solid #dbe2eb;border-radius:18px;padding:24px}h2{font-size:20px;margin:0 0 20px}.views{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}figure{margin:0;min-width:0}.art{height:360px;border:1px solid #e7ebf0;border-radius:12px;background:white}.art img{display:block;width:100%;height:100%;object-fit:contain}figcaption{padding:14px 4px;font-size:14px;color:#4d6075;overflow-wrap:anywhere}@media(max-width:650px){main{padding:24px 12px}section{padding:14px}.views{gap:12px}.art{height:210px}h1{font-size:28px}}@media(max-width:400px){.art{height:170px}}'
@@ -210,4 +311,5 @@ def build_outputs(project: dict, output_dir: Path, kinds: list[str]) -> dict:
                     if any(sha256(extracted/name)!=digest for name,digest in hashes.items()):raise ValueError('Açılan ZIP hash uyuşmazlığı.')
             crc = 'passed'
         os.replace(stage, output_dir)
-    return {'status':'passed','path':str(output_dir.resolve()),'active_count':len(active),'files':hashes,'zip_crc':crc,'publication':'not_requested_not_performed'}
+    return {'status':'passed','path':str(output_dir.resolve()),'active_count':len(active),'files':hashes,'zip_crc':crc,
+            'panel_warnings':panel_warnings,'publication':'not_requested_not_performed'}

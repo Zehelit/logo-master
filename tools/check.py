@@ -14,6 +14,7 @@ SUITES=('tests','skills/logo-master/tests')
 ENV_KEYS=('LOGO_INKSCAPE','LOGO_FONT_PYTHON','FONTCONFIG_FILE','PANGOCAIRO_BACKEND','INKSCAPE_PROFILE_DIR')
 ALLOWED_SKIPS=frozenset({
  'test_render.RenderTests.test_real_exo_2_family_and_turkish',
+ 'test_render.RenderTests.test_real_renderer_binds_font_file_hash',
  'test_render.RenderTests.test_real_renderer_preserves_dimensions',
  'test_render.RenderTests.test_missing_font_blocks_raster_render_too',
  'test_review_regressions.ReviewRegressions.test_missing_parent_font_in_tail_is_rejected',

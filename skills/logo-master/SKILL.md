@@ -29,6 +29,8 @@ Yalnız kullanıcı çağırdığında kullan. Görsel beğeni ve kullanıcı se
 
 Image Gen yaratıcı amblem/işaret araştırmasında kullanılabilir. Yazıları gerçek fontu yükleyen Canva veya vektör/dizgi aracıyla oluştur. İlk aday için sınırlı önizleme birleştirmesi, kapsamlı teknik üretime geçme yetkisi değildir.
 
+Araç yeteneğini güncel çağrı şemasından kontrol et. Üretim kaydında istenen özellikleri, gönderilen parametreleri ve aracın bildirdiği sonuçları kaydet. Açıklanmayan ayarları bilinmiyor bırak. İzole teknik pilot, aday seçimi veya teslim onayı vermez.
+
 Rasterless/Potrace izleme ve Inkscape temizleme/dışa aktarma mevcut olduklarında kullanılabilir. Dönüştürme görsel kusursuzluk garantisi değildir. Betikleri dosyalama, denetim ve mevcut çizimde kontrollü dönüşümler için kullan. Dosyaya özgü glyph kimliklerini genel dönüştürücüye sabitleme.
 
 Proje içinde brief, aşama, seçilmiş aday ve seçim kanıtı, korunan özellikler, fontlar, dosyalar, Canva bağlantıları ve açık testleri kaydet. Sonraki oturum kaynakların mevcut durumunu doğrulayıp buradan sürdürsün. Kullanıcıya kanıtlanan sonucu ve kalan sınırlamayı bildir.

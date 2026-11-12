@@ -8,8 +8,10 @@ import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
 from .model import read_svg, sha256, safe_path, find_variant
-from .audit import audit_svg, compare_operation, canonical, style_dict, audit_png
+from .audit import audit_svg, compare_operation, canonical, recolor_component, audit_png
+from .assets import inspect_asset
 from .render import render_svg, _executable
+from .provenance import is_technical_pilot, pilot_allows
 
 SVG = 'http://www.w3.org/2000/svg'
 ET.register_namespace('', SVG)
@@ -43,7 +45,8 @@ def drawing_bbox(source, env, ident=None):
 def apply_edit(project: dict, operation: dict, output_dir: Path) -> dict:
     root = Path(project['_root']); _, variant = find_variant(project, operation['variant_id'])
     selection = variant.get('selection', {})
-    if selection.get('status') not in ['selected', 'approved'] or not selection.get('evidence'):
+    technical = pilot_allows(project, variant, operation.get('kind'))
+    if not technical and (is_technical_pilot(project) or selection.get('status') not in ['selected', 'approved'] or not selection.get('evidence')):
         raise ValueError('Teknik üretim için kullanıcı seçimi veya açık revizyon kanıtı gerekli.')
     source = safe_path(root, variant['source']['path'])
     if sha256(source) != variant['source']['sha256']:
@@ -59,25 +62,10 @@ def apply_edit(project: dict, operation: dict, output_dir: Path) -> dict:
     contract = {'kind': kind, 'target_component': component['svg_id'] if component else None}
     if kind == 'recolor':
         replacements = params.get('replacements')
-        if not isinstance(replacements, dict) or not replacements:
-            raise ValueError('Açık eski→yeni renk eşlemesi gerekli.')
-        replacements = {k.casefold(): v for k, v in replacements.items()}
-        if any(not isinstance(v, str) or any(c in v for c in [';', '(', ')', '<', '>']) for v in replacements.values()):
-            raise ValueError('Yalnız düz renk değeri kullanılabilir.')
-        changed = 0
-        for child in node.iter():
-            for key in ['fill', 'stroke']:
-                old = child.get(key)
-                if old and old.casefold() in replacements:
-                    child.set(key, replacements[old.casefold()]); changed += 1
-            if child.get('style'):
-                styles = {k.strip(): v.strip() for k, v in style_dict(child.get('style')).items()}
-                for key in ['fill', 'stroke']:
-                    if styles.get(key, '').casefold() in replacements:
-                        styles[key] = replacements[styles[key].casefold()]; changed += 1
-                child.set('style', ';'.join(k+':'+v for k, v in styles.items()))
-        if not changed:
+        attributes = params.get('attributes', ['fill', 'stroke'])
+        if not recolor_component(node, replacements, attributes):
             raise ValueError('Hedef bileşende eşleşen açık renk bulunamadı; kalıtımlı/CSS renk otomatik tahmin edilmez.')
+        contract.update(replacements=replacements, attributes=attributes)
     elif kind in ['scale', 'layout']:
         if kind == 'scale':
             factor = positive(params['factor'], 'Ölçek'); cx, cy = params.get('center', [0, 0])
@@ -138,10 +126,12 @@ def apply_edit(project: dict, operation: dict, output_dir: Path) -> dict:
             check = {'status': 'passed' if protected else 'failed', 'protected_structure_equal': protected, 'contract': contract}
         else:
             check = compare_operation(source, staged, contract)
+            check['contract'] = contract
         if check['status'] == 'failed': raise ValueError('Korunan yapı değişti: '+str(check))
         output_dir.mkdir(parents=True)
         destination = output_dir/'source.svg'; destination.write_bytes(staged.read_bytes())
     result = {'status': check['status'], 'parent_id': variant['id'], 'design_id': next(d['id'] for d in project['designs'] if variant in d['variants']), 'operation': operation, 'source': {'path': str(destination.resolve()), 'sha256': sha256(destination), 'kind': audit_svg(destination)['source_kind']}, 'audit': check, 'original_sha256': sha256(source)}
+    result['technical_pilot'] = technical
     write_json(output_dir/'edit-receipt.json', result)
     return result
 
@@ -216,9 +206,17 @@ def export_png(source: Path, target: Path, width: int, height: int, dpi: int, en
     source, target = Path(source), Path(target)
     if target.exists() or source.resolve() == target.resolve(): raise ValueError('Yeni çıktı yolu gerekli.')
     if any(type(v) is not int or v <= 0 for v in [width, height, dpi]): raise ValueError('Pozitif piksel/DPI gerekli.')
-    with tempfile.TemporaryDirectory(prefix='logo-export-') as folder:
-        if source.suffix.lower() == '.svg':
-            rendered = Path(folder)/'render.png'; proof = render_svg(source, rendered, width, height, env); image = Image.open(rendered).convert('RGBA'); kind = 'vector_render'
+    observed = inspect_asset(source)
+    if observed.get('format') != 'svg' and observed.get('kind') != 'raster':
+        raise ValueError('PNG dışa aktarımı için ölçülebilir bir SVG veya raster kaynak gerekli.')
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='.logo-export-', dir=target.parent) as folder:
+        if observed['format'] == 'svg':
+            rendered = Path(folder)/'render.png'
+            proof = render_svg(source, rendered, width, height, env)
+            with Image.open(rendered) as original:
+                image = original.convert('RGBA')
+            kind = 'vector_render'
         else:
             with Image.open(source) as original: image = original.convert('RGBA')
             kind = 'raster_metadata'
@@ -226,6 +224,11 @@ def export_png(source: Path, target: Path, width: int, height: int, dpi: int, en
             if image.size != (width, height):
                 if not allow_raster_resize: raise ValueError('Raster boyut değişimi için açık allow_raster_resize gerekli.')
                 image = image.resize((width, height), Image.Resampling.LANCZOS); kind = 'raster_resize'
-        staged = Path(folder)/'out.png'; image.save(staged, dpi=(dpi, dpi)); image.close()
-        target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(staged.read_bytes())
-    return {'status': 'passed', 'path': str(target.resolve()), 'sha256': sha256(target), 'operation': kind, 'audit': audit_png(target), 'render': proof}
+        staged = Path(folder)/'out.png'
+        with image:
+            image.save(staged, dpi=(dpi, dpi))
+        audit = audit_png(staged)
+        os.link(staged, target)
+    return {'status': 'passed', 'path': str(target.resolve()), 'sha256': sha256(target), 'operation': kind,
+            'format': audit['format'], 'width': audit['size'][0], 'height': audit['size'][1],
+            'dpi': audit['dpi'], 'audit': audit, 'render': proof}
