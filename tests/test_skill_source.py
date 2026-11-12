@@ -21,7 +21,8 @@ class SourceTests(unittest.TestCase):
  def api(self):self.assertIsNotNone(source,'Direct Git source implementation missing');return source
  def test_cli_version_without_subcommand(self):
   p=subprocess.run([sys.executable,str(ROOT/'skills/logo-master/scripts/logo.py'),'--version'],capture_output=True,text=True)
-  self.assertEqual(p.returncode,0,p.stderr);self.assertEqual(p.stdout.strip(),'1.1.0')
+  expected=(ROOT/'skills/logo-master/VERSION').read_text(encoding='utf-8').strip()
+  self.assertEqual(p.returncode,0,p.stderr);self.assertEqual(p.stdout.strip(),expected)
  def test_existing_help_unchanged(self):
   p=subprocess.run([sys.executable,str(ROOT/'skills/logo-master/scripts/logo.py'),'--help'],capture_output=True,text=True)
   self.assertEqual(p.returncode,0)
