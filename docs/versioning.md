@@ -8,8 +8,8 @@ Sürümün kaynağı `skills/logo-master/VERSION` dosyasıdır. Patch düzeltme,
 minor uyumlu ekleme, major uyumsuz sözleşme değişimidir. `schema_version`
 veri biçimini ayrıca tanımlar. Adlandırılmış sürümler `vX.Y.Z` Git tag'iyle
 işaretlenebilir; yayımlanmış tag taşınmaz. GitHub Release zorunlu değildir.
-Eski `v1.0.0` Release ve arşivleri tarihsel kayıt olarak korunur; yeni
-kurulum ve dağıtım bunları kullanmaz.
+Kurulum ve dağıtım doğrudan Git kaynağından yapılır. GitHub Release veya
+indirilebilir arşiv bu akışın parçası değildir.
 
 ## Doğrudan kaynak sözleşmesi
 
