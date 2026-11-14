@@ -61,6 +61,30 @@ class EditTests(unittest.TestCase):
             from logo_core.audit import compare_renders
             render_svg(self.source,self.root/'before.png',100,100,dict(os.environ));render_svg(self.root/'assembled.svg',self.root/'after.png',100,100,dict(os.environ))
             self.assertEqual(compare_renders(self.root/'before.png',self.root/'after.png')['visible_changed_pixels'],0)
+    def test_pre_tail_manifest_preserves_context(self):
+        pieces = split_svg(self.source, ['mark', 'word'], self.root/'pieces')
+
+        def omit_tail(node):
+            del node['tail']
+            for child in node['children']:
+                omit_tail(child)
+
+        legacy = copy.deepcopy(pieces)
+        for item in legacy['parts']:
+            omit_tail(item['context'])
+
+        current_path = self.root/'current.svg'
+        legacy_path = self.root/'legacy.svg'
+        assemble_svg(pieces, current_path)
+        assemble_svg(legacy, legacy_path)
+        self.assertEqual(legacy_path.read_bytes(), current_path.read_bytes())
+
+        part = Path(legacy['parts'][0]['path'])
+        tree = E.parse(part)
+        tree.find(".//*[@id='mark']").tail = 'unexpected text'
+        tree.write(part, encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'bağlamı değişmiş'):
+            assemble_svg(legacy, self.root/'changed.svg')
     def test_export_dpi_changes_no_pixels(self):
         from PIL import Image
         source=self.root/'old.png';Image.new('RGBA',(20,20),(37,132,201,128)).save(source,dpi=(96,96))

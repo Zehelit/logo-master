@@ -176,6 +176,15 @@ def split_svg(source: Path, component_ids: list, output_dir: Path) -> dict:
     manifest = {'status': 'passed', 'skeleton': str(skeleton.resolve()), 'skeleton_sha256': sha256(skeleton), 'parts': parts, 'limitations': 'Parça içi düzenleme desteklenir; ortak defs/ata düzenlemesi yeniden eşleme gerektirir.'}
     write_json(output_dir/'split.json', manifest); return manifest
 
+def _read_split_context(context):
+    """Historical manifests omitted the tail field; require it to be empty."""
+    return {
+        **context,
+        'tail': context.get('tail', ''),
+        'children': [_read_split_context(child) for child in context['children']],
+    }
+
+
 def assemble_svg(parts, target_path: Path) -> dict:
     if isinstance(parts, (str, Path)): parts = json.loads(Path(parts).read_text(encoding='utf-8'))
     target_path = Path(target_path)
@@ -187,7 +196,8 @@ def assemble_svg(parts, target_path: Path) -> dict:
     for item in parts['parts']:
         part = read_svg(Path(item['path']))
         context = copy.deepcopy(part); editable = target(context,item['svg_id']);tail=editable.tail; editable.clear(); editable.tag='{'+SVG+'}g'; editable.set('id',item['svg_id']);editable.tail=tail
-        if canonical(context) != item['context']: raise ValueError('Parçanın ata/tuval/bağımlılık bağlamı değişmiş; yeniden eşleme gerekli.')
+        if canonical(context) != _read_split_context(item['context']):
+            raise ValueError('Parçanın ata/tuval/bağımlılık bağlamı değişmiş; yeniden eşleme gerekli.')
         if [canonical(n) for n in part if n.tag.split('}')[-1] in ['defs', 'style']] != defs:
             raise ValueError('Ortak bağımlılık değişmiş; sessiz birleştirme yok.')
         parent = tree

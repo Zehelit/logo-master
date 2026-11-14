@@ -12,4 +12,4 @@ render_svg ve outline_svg canlı text/tspan fontunu kontrol eder; eksik fontta s
 
 RGBA karşılaştırması bütün kanalları ve açık/koyu kompozitte görünen farkı ayırır. Alfa0 altındaki RGB farkı görünür kusur değildir; aynı piksel sonucu estetik onay değildir. Renderer/yuvarlama farkını evrensel toleransla kusursuz ilan etme.
 
-Bileşen ayırma ortak viewBox, ata bağlamı, defs ve çizim sırasını korur. Manifest/iskeleti parçalarla sakla. Tight crop veya Canva'da farklı konum için yeni koordinat eşlemesi gerekir. g grubu ya da ayrı SVG üretmek Canva'da bağımsız canlı öğe testinin yerine geçmez.
+Bileşen ayırma ortak viewBox, ata bağlamı, defs ve çizim sırasını korur. Manifest/iskeleti parçalarla sakla. Eski manifestlerde eksik XML `tail` alanı boş değer olarak okunur. Daha sonra eklenen metin ve diğer bağlam değişiklikleri birleştirme denetiminde reddedilir. Tight crop veya Canva'da farklı konum için yeni koordinat eşlemesi gerekir. g grubu ya da ayrı SVG üretmek Canva'da bağımsız canlı öğe testinin yerine geçmez.
