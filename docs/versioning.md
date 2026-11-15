@@ -1,6 +1,6 @@
 # Sürüm ve kurulum sözleşmesi
 
-GitHub `Zehelit/logo-master` private reposu kaynak geçmişinin merkezidir.
+GitHub `Zehelit/logo-master` reposu kaynak geçmişinin merkezidir.
 Geliştirme tek checkout'ta, Codex kullanımı ayrı skill kurulumunda yapılır.
 Her sürüm için ayrı çalışma klasörü veya sürekli çalışan güncelleyici yoktur.
 
@@ -50,12 +50,11 @@ Tamamen elle kopyalama seçeneği yönetim makbuzu ve otomatik rollback sağlama
 `tools/check.py` kaynak/test ve kurulu skill'i karıştırmaz; iki test kökünü
 ayrı alt süreçlerde çalıştırır, skill import'larını checkout içinde doğrular.
 GitHub Windows/Python3.12 portable işi sadece contents okuma izniyle çalışır;
-yayın/kurulum yapmaz. Atlanan beş font/renderer testi isimleriyle raporlanır.
+yayın/kurulum yapmaz. Atlanan altı font/renderer testi isimleriyle raporlanır.
 Full profil gerçek Inkscape/Pango'yu başlatır ve sıfır atlama ister.
 
-Sürüm işaretlemeden önce temiz exact commit'in CI sonucu ve yerel full
-raporu doğrulanır. CHANGELOG ile VERSION aynı kaynakta güncellenir. Uygun
-commit'e Git tag'i eklenir; paket derleme/yükleme veya Release açma gerekmez.
+CHANGELOG ile VERSION aynı kaynakta güncellenir. Sürüm bir Git tag'iyle
+işaretlenecekse ilgili commit'in CI sonucu ve yerel full raporu doğrulanır.
 Sonradan düzeltme yeni commit ve gerektiğinde yeni sürümdür.
 
 Günlük bağlam kısa durum, ilgili diff ve gereken kaynaklarla sınırlıdır.

@@ -13,7 +13,11 @@ Varsayılan çalışma arşivi korunur. `presentation` görünür adayların
 bağlar. Pano açık karşılaştırma grupları ile ortak kırpma ve ölçek kullanabilir.
 Üretim kökeni, teknik pilot ve onay alanları isteğe bağlıdır. Yeni ve yanlış
 metadata beyanları reddedilir. Eski artefakt kayıtlarındaki uyuşmazlıklar
-doğrulama uyarısı olarak görünür.
+doğrulama uyarısı olarak görünür. Eski bileşen manifestlerinde eksik XML
+`tail` alanı boş değer olarak okunur.
+
+README, kurulum rehberi ve mimari belgesi 1.2.0'ın Git kurulumunu,
+üretim akışını ve doğrulama kapsamını açıklar.
 
 ## 1.1.0
 
@@ -25,7 +29,7 @@ Eski `--tag` seçeneği korunur; artık Git tag'i yeterlidir.
 
 Makbuz biçimi, yerel değişiklik koruması, kesinti kurtarma ve tek önceki kopya
 ile geri dönüş korunur. `CODEX_HOME` desteği eklendi. ZIP paketleme/indirme
-araçları kaldırıldı; tarihsel v1.0.0 Release ve tag değişmedi.
+araçları kaldırıldı. v1.0.0 Git tag'i sürüm geçmişinde durur.
 
 ## 1.0.0
 
