@@ -12,8 +12,9 @@ PowerShell'de, tek bir geliştirme/kurulum kaynağı olarak kullanacağınız di
 ```powershell
 git clone https://github.com/Zehelit/logo-master.git
 if ($LASTEXITCODE -ne 0) { throw 'Kaynak klonlanamadı.' }
-Set-Location -LiteralPath ./logo-master
+Set-Location -LiteralPath ./logo-master -ErrorAction Stop
 git status --short --branch
+if ($LASTEXITCODE -ne 0) { throw 'Git çalışma ağacı okunamadı.' }
 python tools/skillctl.py status --details
 if ($LASTEXITCODE -ne 0) { throw 'Kurulum durumu okunamadı.' }
 python tools/skillctl.py install
@@ -82,11 +83,16 @@ Repo kökünden:
 
 ```powershell
 git status --short
+if ($LASTEXITCODE -ne 0) { throw 'Git çalışma ağacı okunamadı.' }
 git pull --ff-only
 if ($LASTEXITCODE -ne 0) { throw 'Kaynak güncellenemedi.' }
 python tools/skillctl.py install
 if ($LASTEXITCODE -ne 0) { throw 'Kurulum durdu. Durum ayrıntısını inceleyin.' }
-python tools/skillctl.py status --details
+$logoStateJson = python tools/skillctl.py status --details
+if ($LASTEXITCODE -ne 0) { throw 'Kurulum durumu okunamadı.' }
+$logoState = $logoStateJson | ConvertFrom-Json
+if ($logoState.status -ne 'clean') { throw 'Güncellenen kurulum doğrulanamadı.' }
+$logoState
 ```
 
 Checkout'ta kişisel değişiklik varsa önce inceleyin; `reset --hard`, zorla
@@ -111,7 +117,12 @@ Aynı commit yeniden kurulursa dosyalar değiştirilmeden `noop: true` döner.
 
 ```powershell
 python tools/skillctl.py rollback
-python tools/skillctl.py status
+if ($LASTEXITCODE -ne 0) { throw 'Geri dönüş başarısız. Üstteki hata çıktısını inceleyin.' }
+$logoStateJson = python tools/skillctl.py status
+if ($LASTEXITCODE -ne 0) { throw 'Geri döndürülen kurulum durumu okunamadı.' }
+$logoState = $logoStateJson | ConvertFrom-Json
+if ($logoState.status -ne 'clean') { throw 'Geri döndürülen kurulum doğrulanamadı.' }
+$logoState
 ```
 
 `rollback` doğrulanmış tek önceki kopyayı geri getirir. Mevcut veya önceki
@@ -165,8 +176,8 @@ ve geçmiş raporları baştan yüklemeyin.
    dizinine `git clone https://github.com/Zehelit/logo-master.git` yap.
    `origin` bu repo olmalı; HTTPS ve standart GitHub SSH biçimleri desteklenir.
 3. Kullanıcının gerçek Codex kökünü kullan (`CODEX_HOME`, yoksa `.codex`).
-   İzole test istenmişse hem `CODEX_HOME` hem yedek profil yolunu test
-   dizinine yönlendir; gerçek skill kurulumunu test hedefi yapma.
+   İzole test için `CODEX_HOME` değerini mutlak bir test dizinine ayarla.
+   Kurulu dosyalar, makbuz ve geri dönüş kopyası bu kökte kalır.
 4. Repo kökünden `python tools/skillctl.py status` çalıştır. Var olan
    kaynak/kurulum değişikliklerini ve aynı hedefi kullanan etkin işleri incele.
    `modified` veya `invalid` durumunda dosyaları koru ve nedeni bildir. Durum

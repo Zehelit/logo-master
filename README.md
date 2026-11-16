@@ -50,7 +50,25 @@ python tools/check.py --profile portable --report .artifacts/portable-yeni.json
 if ($LASTEXITCODE -ne 0) { throw 'Portable doğrulama başarısız.' }
 ```
 
-Portable profil altı font/renderer testini adıyla atlar. Tam doğrulamada `python tools/check.py --profile full --environment environment.local.json --report .artifacts/full-yeni.json` gerçek Inkscape/Pango ortamını ve sıfır atlamayı gerektirir. [Ortam değişkenleri ve font çözümleme kapsamı](skills/logo-master/references/local-vector.md) yerel vektör rehberindedir.
+Portable profil altı font/renderer testini adıyla atlar. Tam profil için repo kökünde UTF-8 kodlu `environment.local.json` oluşturun. Aşağıdaki yollar örnektir. Kendi ortamınızdaki mevcut dosyaların mutlak yollarını yazın.
+
+```json
+{
+  "LOGO_INKSCAPE": "C:/ornek/inkscape/bin/inkscape.exe",
+  "LOGO_FONT_PYTHON": "C:/ornek/pango/python.exe",
+  "FONTCONFIG_FILE": "C:/ornek/fontconfig/fonts.conf",
+  "PANGOCAIRO_BACKEND": "fc"
+}
+```
+
+İlk üç alan zorunludur. `LOGO_FONT_PYTHON`, `gi`, Pango ve PangoCairo'yu yükleyebilen Python çalıştırıcısına işaret eder. Fontconfig yapılandırmasında gerçek **Exo 2 Regular ve Bold** dosyalarını içeren dizini tanımlayın. Tam testin italik geri dönüş denetimi için bu test ortamında Exo 2'nin italik yüzü bulunmamalıdır. Örnekteki isteğe bağlı `PANGOCAIRO_BACKEND=fc`, Pango'nun Fontconfig tabanlı yazı tipi haritasını kullanmasını sağlar. [Yerel vektör rehberi](skills/logo-master/references/local-vector.md)
+
+```powershell
+python tools/check.py --profile full --environment environment.local.json --report .artifacts/full-yeni.json
+if ($LASTEXITCODE -ne 0) { throw 'Tam doğrulama başarısız.' }
+```
+
+Tam profil sıfır test atlaması ister. `environment.local.json` makineye özel bir dosyadır ve Git dışında tutulur.
 
 SVG/PNG denetimi dosyanın teknik özelliklerini ölçer. Görsel seçim ve baskı/nakış kabulü ayrı değerlendirmelerdir. Canva ön kontrolü yerel dosyayı doğrular. Canva'daki düzenleme ve dışa aktarma için ilgili tasarım üzerinde [ayrı kontroller](skills/logo-master/references/canva.md) gerekir.
 

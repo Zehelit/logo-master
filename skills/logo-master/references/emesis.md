@@ -1,6 +1,6 @@
 # EMESİS proje profili
 
-Yalnız bu markada kullan. Proje kökü C:/Users/Doruk/Desktop/logos.
+Yalnız bu markada kullan. Aşağıdaki göreli yollar EMESİS çalışma alanının köküne göredir. Kökü açık çalışma alanından veya kullanıcının verdiği konumdan belirle. Proje kayıtları burada bulunmuyorsa konumu doğrulamadan dosya işlemi yapma.
 
 - Tam unvan **EMESİS Teknik Elektronik Limited Şirketi**. Resmî tam kullanımda bütün bölümler bulunur. Web/sosyal/avatar/favicon için kısa ad veya simge mümkündür; aynı kimlik/font/palet korunur. İsim kuruculardan türemiştir; zoraki anlam yüklenmez.
 - Karakter: profesyonellik, tecrübe, kalite, hızlı çözüm. Jenerik/plastik/dokulu AI görünümü istenmez. Yazılar ilk adaydan itibaren gerçek fontla dizilir.
