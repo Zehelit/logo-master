@@ -1,6 +1,8 @@
 # Sürüm ve kurulum sözleşmesi
 
 GitHub `Zehelit/logo-master` reposu kaynak geçmişinin merkezidir.
+Geliştirme commit'leri ve push'lar varsayılan olarak `main` dalına yapılır.
+Ayrı dalı yalnız çalışma gerçekten gerektirdiğinde kullanın.
 Geliştirme tek checkout'ta, Codex kullanımı ayrı skill kurulumunda yapılır.
 Her sürüm için ayrı çalışma klasörü veya sürekli çalışan güncelleyici yoktur.
 
